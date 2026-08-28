@@ -1,3 +1,17 @@
 module.exports = {
   presets: ['module:@react-native/babel-preset'],
+  plugins: [
+    '@babel/plugin-transform-export-namespace-from',
+    [
+      'module-resolver',
+      {
+        root: ['./src'],
+        alias: {
+          '@': './src',
+        },
+        extensions: ['.ios.js', '.android.js', '.js', '.jsx', '.ts', '.tsx', '.json', '.native.js'],
+      },
+    ],
+    'react-native-worklets/plugin',
+  ],
 };
