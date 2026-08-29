@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState } from 'react';
 import {
   View,
   FlatList,
@@ -13,35 +13,47 @@ import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useInfiniteQuery } from '@tanstack/react-query';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Search, Plus } from 'lucide-react-native';
 import { useTheme } from '@/design-system';
 import { Screen } from '@/components/common/Screen';
 import { AppText } from '@/components/common/AppText';
 import { NotificationBell } from '@/components/common/NotificationBell';
-import { EmptyState } from '@/components/feedback/EmptyState';
-import { Loader } from '@/components/feedback/Loader';
+import { SkeletonLeadCard, EmptyState } from '@/components/feedback';
+import { useDebounceSearch } from '@/hooks/useDebounceSearch';
 import { SalesStackParamList } from '@/features/sales/navigation/types';
 import { leadsApi, Lead } from '@/services/api/leads.api';
 
 type Nav = NativeStackNavigationProp<SalesStackParamList>;
 
 const PAGE_SIZE = 20;
-const PRIMARY = '#3B4ECC';
 
-// Real LeadStatus values only (NEW | QUALIFIED | LOST) — the backend's Zod
-// schema rejects anything else with a 400. A qualified lead's Opportunity has
-// its own richer stage (see item.opportunity), shown in the card instead of
-// pretending Lead.status has that granularity.
 const STATUS_BADGE: Record<string, { label: string; bg: string; color: string }> = {
   NEW:       { label: 'New',       bg: '#FEF3C7', color: '#D97706' },
   QUALIFIED: { label: 'Qualified', bg: '#D1FAE5', color: '#065F46' },
   LOST:      { label: 'Lost',      bg: '#FEE2E2', color: '#991B1B' },
 };
 
-const FILTER_TABS = [
-  { label: 'All',       value: '' },
-  { label: 'New',       value: 'NEW' },
-  { label: 'Qualified', value: 'QUALIFIED' },
-  { label: 'Lost',      value: 'LOST' },
+// Once a lead is qualified it converts into an Opportunity, which then moves
+// through its own pipeline (NEW..WON/LOST) independent of the lead's own
+// (frozen) QUALIFIED status. Showing the opportunity's stage here — instead
+// of always "Qualified" — is what surfaces "Quoted" on the lead card.
+const OPPORTUNITY_STAGE_BADGE: Record<string, { label: string; bg: string; color: string }> = {
+  NEW:         { label: 'Qualified',  bg: '#D1FAE5', color: '#065F46' },
+  CONTACTED:   { label: 'Contacted',  bg: '#DBEAFE', color: '#1D4ED8' },
+  QUOTED:      { label: 'Quoted',     bg: '#E0E7FF', color: '#4338CA' },
+  NEGOTIATION: { label: 'Negotiation',bg: '#FCE7F3', color: '#9D174D' },
+  WON:         { label: 'Won',        bg: '#DCFCE7', color: '#15803D' },
+  LOST:        { label: 'Lost',       bg: '#FEE2E2', color: '#991B1B' },
+};
+
+type FilterTab = { label: string; status?: string; opportunityStage?: string };
+
+const FILTER_TABS: FilterTab[] = [
+  { label: 'All' },
+  { label: 'New', status: 'NEW' },
+  { label: 'Qualified', status: 'QUALIFIED' },
+  { label: 'Quoted', opportunityStage: 'QUOTED' },
+  { label: 'Lost', status: 'LOST' },
 ];
 
 const AVATAR_COLORS = [
@@ -70,18 +82,17 @@ function LeadCard({ item, onPress }: { item: Lead; onPress: () => void }) {
   const theme = useTheme();
   const displayName = item.contactName || item.companyName || 'Unknown';
   const company = item.companyName;
-  const badge = STATUS_BADGE[item.status] ?? { label: item.status, bg: theme.colors.surfaceAlt, color: theme.colors.textMuted };
+  const badge = item.opportunity
+    ? OPPORTUNITY_STAGE_BADGE[item.opportunity.stage] ?? { label: item.opportunity.stage, bg: theme.colors.surfaceAlt, color: theme.colors.textMuted }
+    : STATUS_BADGE[item.status] ?? { label: item.status, bg: theme.colors.surfaceAlt, color: theme.colors.textMuted };
   const avatarBg = avatarColor(displayName);
   const ini = initials(displayName);
 
   return (
     <TouchableOpacity onPress={onPress} activeOpacity={0.75} style={[styles.leadCard, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
-      {/* Avatar */}
       <View style={[styles.leadAvatar, { backgroundColor: avatarBg }]}>
         <AppText style={styles.leadAvatarText}>{ini}</AppText>
       </View>
-
-      {/* Info */}
       <View style={styles.leadInfo}>
         <View style={styles.leadTopRow}>
           <AppText style={styles.leadName} color={theme.colors.text} numberOfLines={1}>
@@ -112,8 +123,6 @@ function LeadCard({ item, onPress }: { item: Lead; onPress: () => void }) {
           )}
         </View>
       </View>
-
-      {/* Chevron */}
       <AppText style={styles.chevron} color={theme.colors.textMuted}>›</AppText>
     </TouchableOpacity>
   );
@@ -123,23 +132,20 @@ export function LeadsScreen() {
   const theme = useTheme();
   const navigation = useNavigation<Nav>();
   const insets = useSafeAreaInsets();
-  const [search, setSearch] = useState('');
-  const [debouncedSearch, setDebouncedSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
-  const searchTimer = React.useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-
-  const handleSearch = useCallback((text: string) => {
-    setSearch(text);
-    clearTimeout(searchTimer.current);
-    searchTimer.current = setTimeout(() => setDebouncedSearch(text), 400);
-  }, []);
+  const { value: search, debouncedValue: debouncedSearch, onChange: handleSearch } = useDebounceSearch();
+  const [activeFilter, setActiveFilter] = useState<FilterTab>(FILTER_TABS[0]);
 
   const { data, fetchNextPage, hasNextPage, isFetchingNextPage, isLoading, isError, refetch } =
     useInfiniteQuery({
-      queryKey: ['leads', debouncedSearch, statusFilter],
+      queryKey: ['leads', debouncedSearch, activeFilter.status, activeFilter.opportunityStage],
       queryFn: ({ pageParam }) =>
-        leadsApi.list({ page: pageParam as number, pageSize: PAGE_SIZE, search: debouncedSearch || undefined, status: statusFilter || undefined })
-          .then(r => r.data),
+        leadsApi.list({
+          page: pageParam as number,
+          pageSize: PAGE_SIZE,
+          search: debouncedSearch || undefined,
+          status: activeFilter.status,
+          opportunityStage: activeFilter.opportunityStage,
+        }).then(r => r.data),
       initialPageParam: 1,
       getNextPageParam: (lastPage) => {
         const fetched = lastPage.page * lastPage.pageSize;
@@ -151,12 +157,12 @@ export function LeadsScreen() {
   const totalCount = data?.pages[0]?.total ?? 0;
 
   return (
-    <Screen edges={['left', 'right', 'bottom']}>
+    <Screen edges={['left', 'right']}>
       {/* Screen header */}
       <View style={[styles.header, { paddingTop: insets.top + 8, backgroundColor: theme.colors.surface, borderBottomColor: theme.colors.border }]}>
         <View style={styles.headerTop}>
           <View style={{ flex: 1 }}>
-            <AppText style={styles.brandLabel}>IRIS CRM</AppText>
+            <AppText style={[styles.brandLabel, { color: theme.colors.primary }]}>IRIS CRM</AppText>
             <AppText style={styles.pageTitle} color={theme.colors.text}>Leads</AppText>
             <AppText style={styles.pageSubtitle} color={theme.colors.textMuted}>
               {totalCount > 0 ? `${totalCount} opportunities in motion` : 'Your pipeline starts here'}
@@ -165,9 +171,9 @@ export function LeadsScreen() {
           <View style={styles.headerActions}>
             <TouchableOpacity
               onPress={() => navigation.navigate('LeadCreate')}
-              style={[styles.addBtn, { backgroundColor: PRIMARY }]}
+              style={[styles.addBtn, { backgroundColor: theme.colors.primary }]}
             >
-              <AppText style={styles.addBtnText}>+</AppText>
+              <Plus size={20} color="#FFF" strokeWidth={2.5} />
             </TouchableOpacity>
             <NotificationBell size={40} onPress={() => navigation.navigate('Notifications')} />
           </View>
@@ -175,7 +181,7 @@ export function LeadsScreen() {
 
         {/* Search */}
         <View style={[styles.searchWrap, { backgroundColor: theme.colors.surfaceAlt, borderRadius: 12 }]}>
-          <AppText style={{ color: theme.colors.textMuted, fontSize: 14, marginRight: 8 }}>⌕</AppText>
+          <Search size={16} color={theme.colors.textMuted} style={{ marginRight: 8 }} />
           <TextInput
             value={search}
             onChangeText={handleSearch}
@@ -190,12 +196,12 @@ export function LeadsScreen() {
         {/* Status filter chips */}
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterScroll} contentContainerStyle={styles.filterRow}>
           {FILTER_TABS.map(f => {
-            const active = statusFilter === f.value;
+            const active = f.label === activeFilter.label;
             return (
               <TouchableOpacity
-                key={f.value}
-                onPress={() => setStatusFilter(f.value)}
-                style={[styles.chip, { backgroundColor: active ? PRIMARY : theme.colors.surface, borderColor: active ? PRIMARY : theme.colors.border }]}
+                key={f.label}
+                onPress={() => setActiveFilter(f)}
+                style={[styles.chip, { backgroundColor: active ? theme.colors.primary : theme.colors.surface, borderColor: active ? theme.colors.primary : theme.colors.border }]}
               >
                 <AppText style={{ ...styles.chipText, color: active ? '#FFF' : theme.colors.textSecondary } as TextStyle}>
                   {f.label}
@@ -208,7 +214,13 @@ export function LeadsScreen() {
 
       {/* List */}
       {isLoading ? (
-        <Loader />
+        <FlatList
+          data={[1, 2, 3, 4, 5]}
+          keyExtractor={i => String(i)}
+          contentContainerStyle={styles.list}
+          showsVerticalScrollIndicator={false}
+          renderItem={() => <SkeletonLeadCard />}
+        />
       ) : isError ? (
         <EmptyState title="Could not load leads" message="Check your connection" action={{ label: 'Retry', onPress: refetch }} />
       ) : (
@@ -226,7 +238,7 @@ export function LeadsScreen() {
             </View>
           ) : undefined}
           ListFooterComponent={isFetchingNextPage
-            ? () => <View style={styles.footerLoader}><ActivityIndicator color={PRIMARY} size="small" /></View>
+            ? () => <View style={styles.footerLoader}><ActivityIndicator color={theme.colors.primary} size="small" /></View>
             : undefined}
           ListEmptyComponent={
             <EmptyState
@@ -254,7 +266,6 @@ const styles = StyleSheet.create({
   brandLabel: {
     fontSize: 11,
     fontFamily: 'Inter-SemiBold',
-    color: PRIMARY,
     letterSpacing: 1.2,
     marginBottom: 2,
   },
@@ -262,7 +273,6 @@ const styles = StyleSheet.create({
   pageSubtitle: { fontSize: 12, fontFamily: 'Inter-Regular', marginTop: 2 },
   headerActions: { flexDirection: 'row', gap: 8, alignItems: 'center' },
   addBtn: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
-  addBtnText: { fontSize: 22, color: '#FFF', fontFamily: 'Inter-Regular', lineHeight: 28, marginTop: -2 },
   bellBtn: { width: 40, height: 40, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
   searchWrap: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, height: 44 },
   searchInput: { flex: 1, fontSize: 14, fontFamily: 'Inter-Regular', paddingVertical: 0 },
@@ -295,6 +305,6 @@ const styles = StyleSheet.create({
   leadBottomRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 2 },
   leadPhone: { fontSize: 12, fontFamily: 'Inter-Regular', flex: 1 },
   dealValue: { fontSize: 14, fontFamily: 'Inter-SemiBold' },
-  chevron: { fontSize: 22, marginLeft: 2 },
+  chevron: { fontSize: 22, lineHeight: 26, marginLeft: 2 },
   footerLoader: { paddingVertical: 16, alignItems: 'center' },
 });

@@ -43,8 +43,7 @@ export function LoginScreen() {
     try {
       const res = await apiClient.post('/auth/login', data);
 
-      // Normalise response — backends vary: .data vs .data.data, camelCase vs snake_case
-      const d: Record<string, any> = res.data?.data ?? res.data ?? {};
+      const d: Record<string, any> = res.data ?? {};
       const accessToken: string | undefined =
         d.accessToken ?? d.token ?? d.access_token;
       const refreshToken: string | undefined =

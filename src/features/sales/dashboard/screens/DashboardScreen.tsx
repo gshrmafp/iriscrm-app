@@ -6,6 +6,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Plus, PenLine, Search, TrendingUp, Users, Clock, Building2, Phone, Mail, CalendarCheck } from 'lucide-react-native';
 import { useTheme } from '@/design-system';
 import { Screen } from '@/components/common/Screen';
 import { AppText } from '@/components/common/AppText';
@@ -15,13 +16,10 @@ import { dashboardApi } from '@/services/api/dashboard.api';
 import { leadsApi, FollowUp } from '@/services/api/leads.api';
 import { customersApi } from '@/services/api/customers.api';
 import { isDueToday, isOverdue, formatFollowUpTime } from '@/utils/date';
-
+import { DARK_NAVY } from '@/constants/brandColors';
 import { SalesStackParamList } from '@/features/sales/navigation/types';
 
 type Nav = NativeStackNavigationProp<SalesStackParamList>;
-
-const DARK_NAVY = '#111C40';
-const PRIMARY = '#3B4ECC';
 
 const PRIORITY_COLORS: Record<string, string> = {
   urgent: '#DC2626', high: '#DC2626', medium: '#D97706', low: '#6B7280',
@@ -29,6 +27,13 @@ const PRIORITY_COLORS: Record<string, string> = {
 
 const PRIORITY_BG: Record<string, string> = {
   urgent: '#FEE2E2', high: '#FEE2E2', medium: '#FEF3C7', low: '#F1F5F9',
+};
+
+const CHANNEL_ICON: Record<string, React.ComponentType<any>> = {
+  call: Phone,
+  email: Mail,
+  meeting: CalendarCheck,
+  visit: Building2,
 };
 
 function greeting(name: string) {
@@ -54,7 +59,7 @@ function ScreenHeader({ title, subtitle, onBellPress }: { title: string; subtitl
   return (
     <View style={[styles.screenHeader, { paddingTop: insets.top + 8, backgroundColor: theme.colors.surface, borderBottomColor: theme.colors.border }]}>
       <View style={{ flex: 1 }}>
-        <AppText style={styles.brandLabel}>IRIS CRM</AppText>
+        <AppText style={[styles.brandLabel, { color: theme.colors.primary }]}>IRIS CRM</AppText>
         <AppText variant="h2" color={theme.colors.text}>{title}</AppText>
         <AppText variant="caption" color={theme.colors.textMuted}>{subtitle}</AppText>
       </View>
@@ -111,13 +116,13 @@ export function DashboardScreen() {
   const name = user?.name?.split(' ')[0] ?? 'there';
 
   return (
-    <Screen edges={['left', 'right', 'bottom']}>
+    <Screen edges={['left', 'right']}>
       <ScreenHeader title="Home" subtitle="Your sales command center" onBellPress={() => navigation.navigate('Notifications')} />
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scroll}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={PRIMARY} colors={[PRIMARY]} />
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.colors.primary} colors={[theme.colors.primary]} />
         }
       >
         {/* Greeting card */}
@@ -128,17 +133,17 @@ export function DashboardScreen() {
             <AppText style={styles.greetSub}>{"Here's your focus for today."}</AppText>
           </View>
           <View style={styles.greetIcon}>
-            <AppText style={{ fontSize: 24 }}>〰</AppText>
+            <TrendingUp size={22} color="rgba(255,255,255,0.8)" strokeWidth={1.8} />
           </View>
         </View>
 
         {/* 2×2 stat grid */}
         <View style={styles.statGrid}>
-          {/* Primary dark card */}
+          {/* Primary dark card — open pipeline */}
           <View style={[styles.statCard, styles.statCardDark, { backgroundColor: DARK_NAVY }]}>
             <View style={styles.statIconRow}>
               <View style={styles.statIconDark}>
-                <AppText style={{ fontSize: 16 }}>↗</AppText>
+                <TrendingUp size={16} color="rgba(255,255,255,0.8)" strokeWidth={2} />
               </View>
             </View>
             <AppText style={styles.statLabelDark}>Open pipeline</AppText>
@@ -151,8 +156,8 @@ export function DashboardScreen() {
           {/* Active leads */}
           <View style={[styles.statCard, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
             <View style={styles.statIconRow}>
-              <View style={[styles.statIconLight, { backgroundColor: '#EEF2FF' }]}>
-                <AppText style={{ fontSize: 16, color: PRIMARY }}>◎</AppText>
+              <View style={[styles.statIconLight, { backgroundColor: theme.colors.primaryLight }]}>
+                <Users size={16} color={theme.colors.primary} strokeWidth={2} />
               </View>
             </View>
             <AppText style={styles.statLabel} color={theme.colors.textMuted}>Active leads</AppText>
@@ -163,8 +168,8 @@ export function DashboardScreen() {
           {/* Follow-ups */}
           <View style={[styles.statCard, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
             <View style={styles.statIconRow}>
-              <View style={[styles.statIconLight, { backgroundColor: '#EEF2FF' }]}>
-                <AppText style={{ fontSize: 16, color: PRIMARY }}>⏰</AppText>
+              <View style={[styles.statIconLight, { backgroundColor: theme.colors.primaryLight }]}>
+                <Clock size={16} color={theme.colors.primary} strokeWidth={2} />
               </View>
             </View>
             <AppText style={styles.statLabel} color={theme.colors.textMuted}>Follow-ups</AppText>
@@ -175,8 +180,8 @@ export function DashboardScreen() {
           {/* Customers */}
           <View style={[styles.statCard, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
             <View style={styles.statIconRow}>
-              <View style={[styles.statIconLight, { backgroundColor: '#EEF2FF' }]}>
-                <AppText style={{ fontSize: 16, color: PRIMARY }}>◆</AppText>
+              <View style={[styles.statIconLight, { backgroundColor: theme.colors.primaryLight }]}>
+                <Building2 size={16} color={theme.colors.primary} strokeWidth={2} />
               </View>
             </View>
             <AppText style={styles.statLabel} color={theme.colors.textMuted}>Customers</AppText>
@@ -195,8 +200,8 @@ export function DashboardScreen() {
             onPress={() => navigation.navigate('LeadCreate')}
             activeOpacity={0.75}
           >
-            <View style={[styles.quickIcon, { backgroundColor: '#EEF2FF' }]}>
-              <AppText style={{ fontSize: 20, color: PRIMARY }}>+</AppText>
+            <View style={[styles.quickIcon, { backgroundColor: theme.colors.primaryLight }]}>
+              <Plus size={20} color={theme.colors.primary} strokeWidth={2.5} />
             </View>
             <AppText style={styles.quickLabel} color={theme.colors.text}>New lead</AppText>
           </TouchableOpacity>
@@ -206,8 +211,8 @@ export function DashboardScreen() {
             onPress={() => navigation.navigate('SalesTabs', { screen: 'Activities' })}
             activeOpacity={0.75}
           >
-            <View style={[styles.quickIcon, { backgroundColor: '#EEF2FF' }]}>
-              <AppText style={{ fontSize: 20, color: PRIMARY }}>✎</AppText>
+            <View style={[styles.quickIcon, { backgroundColor: theme.colors.primaryLight }]}>
+              <PenLine size={20} color={theme.colors.primary} strokeWidth={2} />
             </View>
             <AppText style={styles.quickLabel} color={theme.colors.text}>Log activity</AppText>
           </TouchableOpacity>
@@ -217,8 +222,8 @@ export function DashboardScreen() {
             onPress={() => navigation.navigate('SalesTabs', { screen: 'Leads' })}
             activeOpacity={0.75}
           >
-            <View style={[styles.quickIcon, { backgroundColor: '#EEF2FF' }]}>
-              <AppText style={{ fontSize: 20, color: PRIMARY }}>⌕</AppText>
+            <View style={[styles.quickIcon, { backgroundColor: theme.colors.primaryLight }]}>
+              <Search size={20} color={theme.colors.primary} strokeWidth={2} />
             </View>
             <AppText style={styles.quickLabel} color={theme.colors.text}>Find a lead</AppText>
           </TouchableOpacity>
@@ -230,7 +235,7 @@ export function DashboardScreen() {
             <View style={styles.sectionRow}>
               <AppText style={styles.sectionTitle} color={theme.colors.text}>{"Today's priorities"}</AppText>
               <TouchableOpacity onPress={() => navigation.navigate('SalesTabs', { screen: 'Activities' })}>
-                <AppText style={styles.viewAll} color={PRIMARY}>View all</AppText>
+                <AppText style={[styles.viewAll, { color: theme.colors.primary }]}>View all</AppText>
               </TouchableOpacity>
             </View>
             <View style={styles.priorityList}>
@@ -238,6 +243,7 @@ export function DashboardScreen() {
                 const priority = item.priority ?? 'MEDIUM';
                 const priorityKey = priority.toLowerCase();
                 const timeStr = item.nextActionAt ? formatFollowUpTime(item.nextActionAt) : isOverdue(item.nextActionAt) ? 'Overdue' : 'No due date';
+                const ChannelIcon = CHANNEL_ICON[item.channel] ?? CalendarCheck;
                 return (
                   <TouchableOpacity
                     key={item.id}
@@ -246,10 +252,8 @@ export function DashboardScreen() {
                     onPress={() => item.lead && navigation.navigate('LeadDetail', { id: item.lead.id })}
                   >
                     <View style={[styles.priorityCheck, { borderColor: theme.colors.border }]} />
-                    <View style={[styles.priorityIconWrap, { backgroundColor: '#EEF2FF' }]}>
-                      <AppText style={{ fontSize: 14, color: PRIMARY }}>
-                        {item.channel === 'call' ? '📞' : item.channel === 'email' ? '✉' : '📋'}
-                      </AppText>
+                    <View style={[styles.priorityIconWrap, { backgroundColor: theme.colors.primaryLight }]}>
+                      <ChannelIcon size={14} color={theme.colors.primary} strokeWidth={2} />
                     </View>
                     <View style={{ flex: 1 }}>
                       <AppText style={styles.priorityTitle} color={theme.colors.text} numberOfLines={1}>
@@ -289,20 +293,11 @@ const styles = StyleSheet.create({
   brandLabel: {
     fontSize: 11,
     fontFamily: 'Inter-SemiBold',
-    color: '#3B4ECC',
     letterSpacing: 1.2,
     marginBottom: 2,
   },
-  bellBtn: {
-    width: 42,
-    height: 42,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginLeft: 12,
-  },
   scroll: { paddingBottom: 32 },
 
-  // Greeting card
   greetCard: {
     margin: 16,
     borderRadius: 20,
@@ -339,7 +334,6 @@ const styles = StyleSheet.create({
     marginLeft: 12,
   },
 
-  // Stat grid
   statGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -406,7 +400,6 @@ const styles = StyleSheet.create({
     color: '#10B981',
   },
 
-  // Quick actions
   sectionRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -449,7 +442,6 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
 
-  // Today's priorities
   priorityList: {
     paddingHorizontal: 12,
     gap: 8,

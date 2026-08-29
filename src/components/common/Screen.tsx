@@ -3,7 +3,7 @@ import { View, StyleSheet, StatusBar, ViewStyle } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@/design-system';
 
-interface ScreenProps {
+export interface ScreenProps {
   children: React.ReactNode;
   style?: ViewStyle;
   edges?: ('top' | 'bottom' | 'left' | 'right')[];

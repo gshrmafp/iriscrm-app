@@ -4,6 +4,7 @@ import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { ChevronLeft, Bell, FileText, UserCheck, RefreshCw, MessageSquare, AtSign, CheckCircle, Flag, Clock, AlertTriangle, Paperclip, Calendar } from 'lucide-react-native';
 import { useTheme } from '@/design-system';
 import { Screen } from '@/components/common/Screen';
 import { AppText } from '@/components/common/AppText';
@@ -15,21 +16,20 @@ import { notificationsApi, AppNotification, NotificationType, notificationTarget
 type Nav = NativeStackNavigationProp<SalesStackParamList>;
 
 const PAGE_SIZE = 30;
-const PRIMARY = '#3B4ECC';
 
-const TYPE_ICON: Record<NotificationType, string> = {
-  QUERY_CREATED: '📄',
-  QUERY_ASSIGNED: '👤',
-  QUERY_STATUS_CHANGED: '🔄',
-  QUERY_COMMENT_ADDED: '💬',
-  QUERY_MENTIONED: '@',
-  QUERY_CLOSED: '✅',
-  QUERY_PRIORITY_CHANGED: '🚩',
-  FOLLOW_UP_DUE: '⏰',
-  FOLLOW_UP_OVERDUE: '⚠️',
-  QUERY_ATTACHMENT_UPLOADED: '📎',
-  QUERY_DUE_DATE_UPDATED: '📅',
-  ENTITY_MENTIONED: '@',
+const TYPE_ICON: Record<NotificationType, React.ComponentType<any>> = {
+  QUERY_CREATED: FileText,
+  QUERY_ASSIGNED: UserCheck,
+  QUERY_STATUS_CHANGED: RefreshCw,
+  QUERY_COMMENT_ADDED: MessageSquare,
+  QUERY_MENTIONED: AtSign,
+  QUERY_CLOSED: CheckCircle,
+  QUERY_PRIORITY_CHANGED: Flag,
+  FOLLOW_UP_DUE: Clock,
+  FOLLOW_UP_OVERDUE: AlertTriangle,
+  QUERY_ATTACHMENT_UPLOADED: Paperclip,
+  QUERY_DUE_DATE_UPDATED: Calendar,
+  ENTITY_MENTIONED: AtSign,
 };
 
 function timeAgo(dateStr: string): string {
@@ -47,10 +47,11 @@ function timeAgo(dateStr: string): string {
 function NotificationRow({ item, onPress }: { item: AppNotification; onPress: () => void }) {
   const theme = useTheme();
   const unread = !item.readAt;
+  const IconComponent = TYPE_ICON[item.type] ?? Bell;
   return (
     <TouchableOpacity onPress={onPress} activeOpacity={0.75} style={[styles.row, { backgroundColor: unread ? theme.colors.primaryLight : theme.colors.surface, borderColor: theme.colors.border }]}>
-      <View style={[styles.iconWrap, { backgroundColor: unread ? '#FFF' : theme.colors.surfaceAlt }]}>
-        <AppText style={{ fontSize: 15 }}>{TYPE_ICON[item.type] ?? '🔔'}</AppText>
+      <View style={[styles.iconWrap, { backgroundColor: unread ? theme.colors.primary : theme.colors.surfaceAlt }]}>
+        <IconComponent size={15} color={unread ? '#FFF' : theme.colors.textSecondary} strokeWidth={2} />
       </View>
       <View style={styles.content}>
         <AppText style={unread ? { ...styles.title, ...styles.titleUnread } : styles.title} color={theme.colors.text} numberOfLines={2}>
@@ -61,7 +62,7 @@ function NotificationRow({ item, onPress }: { item: AppNotification; onPress: ()
         ) : null}
         <AppText style={styles.time} color={theme.colors.textMuted}>{timeAgo(item.createdAt)}</AppText>
       </View>
-      {unread && <View style={[styles.dot, { backgroundColor: PRIMARY }]} />}
+      {unread && <View style={[styles.dot, { backgroundColor: theme.colors.primary }]} />}
     </TouchableOpacity>
   );
 }
@@ -120,11 +121,11 @@ export function NotificationsScreen() {
           <View style={[styles.header, { paddingTop: insets.top + 8, backgroundColor: theme.colors.surface, borderBottomColor: theme.colors.border }]}>
             <View style={styles.headerTop}>
               <TouchableOpacity onPress={() => navigation.goBack()} style={[styles.backBtn, { backgroundColor: theme.colors.surfaceAlt }]}>
-                <AppText style={{ fontSize: 18, color: theme.colors.text }}>←</AppText>
+                <ChevronLeft size={20} color={theme.colors.text} strokeWidth={2} />
               </TouchableOpacity>
               <AppText style={styles.pageTitle} color={theme.colors.text}>Notifications</AppText>
               <TouchableOpacity onPress={() => markAllReadMutation.mutate()} style={styles.markAllBtn}>
-                <AppText style={{ fontSize: 12, fontFamily: 'Inter-SemiBold', color: PRIMARY }}>Mark all read</AppText>
+                <AppText style={{ fontSize: 12, fontFamily: 'Inter-SemiBold', color: theme.colors.primary }}>Mark all read</AppText>
               </TouchableOpacity>
             </View>
             {isLoading && <Loader />}

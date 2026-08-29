@@ -6,7 +6,6 @@ import {
   Platform,
   TouchableOpacity,
   StyleSheet,
-  TextInput,
   Alert,
 } from 'react-native';
 import { useForm, Controller } from 'react-hook-form';
@@ -15,12 +14,13 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQueryClient } from '@tanstack/react-query';
+import { ChevronLeft, CheckCircle } from 'lucide-react-native';
 import { useTheme } from '@/design-system';
 import { Screen } from '@/components/common/Screen';
 import { AppText } from '@/components/common/AppText';
+import { AppInput } from '@/components/forms/AppInput';
 import { customersApi } from '@/services/api/customers.api';
 
-const PRIMARY = '#3B4ECC';
 const CUSTOMER_TYPES = ['Individual', 'Business'] as const;
 
 const schema = z.object({
@@ -36,17 +36,6 @@ const schema = z.object({
   revenue: z.string().optional(),
 });
 type FormData = z.infer<typeof schema>;
-
-function FormField({ label, error, children }: { label: string; error?: string; children: React.ReactNode }) {
-  const theme = useTheme();
-  return (
-    <View style={styles.fieldWrap}>
-      <AppText style={styles.fieldLabel} color={theme.colors.text}>{label}</AppText>
-      {children}
-      {error && <AppText style={styles.fieldError}>{error}</AppText>}
-    </View>
-  );
-}
 
 export function CustomerCreateScreen() {
   const theme = useTheme();
@@ -77,13 +66,11 @@ export function CustomerCreateScreen() {
       });
       await queryClient.invalidateQueries({ queryKey: ['customers'] });
       await queryClient.invalidateQueries({ queryKey: ['customers-summary'] });
-      navigation.goBack();
+      Alert.alert('Customer created', `${data.name} has been added.`, [{ text: 'Done', onPress: () => navigation.goBack() }]);
     } catch (e: any) {
       Alert.alert('Error', e?.response?.data?.error?.message ?? 'Could not create customer. Please try again.');
     }
   };
-
-  const inputStyle = [styles.input, { backgroundColor: theme.colors.surfaceAlt, color: theme.colors.text, borderColor: theme.colors.border }];
 
   return (
     <Screen edges={['left', 'right', 'bottom']}>
@@ -94,8 +81,11 @@ export function CustomerCreateScreen() {
           keyboardShouldPersistTaps="handled"
         >
           <View style={styles.pageHeader}>
-            <TouchableOpacity onPress={() => navigation.goBack()} style={[styles.backBtn, { backgroundColor: theme.colors.surfaceAlt }]}>
-              <AppText style={{ fontSize: 18, color: theme.colors.text }}>←</AppText>
+            <TouchableOpacity
+              onPress={() => navigation.goBack()}
+              style={[styles.backBtn, { backgroundColor: theme.colors.surfaceAlt }]}
+            >
+              <ChevronLeft size={20} color={theme.colors.text} strokeWidth={2} />
             </TouchableOpacity>
             <View style={{ flex: 1 }}>
               <AppText style={styles.pageTitle} color={theme.colors.text}>New customer</AppText>
@@ -104,172 +94,198 @@ export function CustomerCreateScreen() {
           </View>
 
           <View style={styles.form}>
-            <FormField label="Customer name" error={errors.name?.message}>
-              <Controller control={control} name="name" render={({ field: { onChange, onBlur, value } }) => (
-                <TextInput
-                  value={value}
-                  onChangeText={onChange}
-                  onBlur={onBlur}
+            <Controller
+              control={control}
+              name="name"
+              render={({ field }) => (
+                <AppInput
+                  label="Customer name"
+                  value={field.value}
+                  onChangeText={field.onChange}
+                  onBlur={field.onBlur}
+                  error={errors.name?.message}
                   placeholder="e.g. Northstar Labs"
-                  placeholderTextColor={theme.colors.textMuted}
-                  style={inputStyle}
                   returnKeyType="next"
+                  autoFocus
                 />
-              )} />
-            </FormField>
+              )}
+            />
 
-            <FormField label="Type" error={errors.type?.message}>
-              <Controller control={control} name="type" render={({ field: { onChange, value } }) => (
-                <View style={styles.chipRow}>
-                  {CUSTOMER_TYPES.map(t => {
-                    const active = value === t;
-                    return (
-                      <TouchableOpacity
-                        key={t}
-                        onPress={() => onChange(t)}
-                        style={[styles.chip, { backgroundColor: active ? PRIMARY : theme.colors.surfaceAlt, borderColor: active ? PRIMARY : theme.colors.border }]}
-                      >
-                        <AppText style={{ fontSize: 13, fontFamily: 'Inter-Medium', color: active ? '#FFF' : theme.colors.textSecondary }}>
-                          {t}
-                        </AppText>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-              )} />
-            </FormField>
+            {/* Type chip selector */}
+            <View>
+              <AppText style={styles.chipLabel} color={theme.colors.textSecondary}>Type</AppText>
+              <Controller
+                control={control}
+                name="type"
+                render={({ field }) => (
+                  <View style={styles.chipRow}>
+                    {CUSTOMER_TYPES.map(t => {
+                      const active = field.value === t;
+                      return (
+                        <TouchableOpacity
+                          key={t}
+                          onPress={() => field.onChange(t)}
+                          style={[
+                            styles.chip,
+                            {
+                              backgroundColor: active ? theme.colors.primary : theme.colors.surfaceAlt,
+                              borderColor: active ? theme.colors.primary : theme.colors.border,
+                            },
+                          ]}
+                        >
+                          <AppText style={{ fontSize: 13, fontFamily: 'Inter-Medium', color: active ? '#FFF' : theme.colors.textSecondary }}>
+                            {t}
+                          </AppText>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                )}
+              />
+              {errors.type?.message ? (
+                <AppText style={styles.chipError} color={theme.colors.error}>{errors.type.message}</AppText>
+              ) : null}
+            </View>
 
-            <FormField label="Annual revenue (optional)">
-              <Controller control={control} name="revenue" render={({ field: { onChange, onBlur, value } }) => (
-                <TextInput
-                  value={value}
-                  onChangeText={onChange}
-                  onBlur={onBlur}
+            <Controller
+              control={control}
+              name="revenue"
+              render={({ field }) => (
+                <AppInput
+                  label="Annual revenue (optional)"
+                  value={field.value}
+                  onChangeText={field.onChange}
+                  onBlur={field.onBlur}
                   placeholder="e.g. 1200000"
-                  placeholderTextColor={theme.colors.textMuted}
-                  style={inputStyle}
                   keyboardType="numeric"
                   returnKeyType="next"
                 />
-              )} />
-            </FormField>
+              )}
+            />
 
             <AppText style={styles.sectionLabel} color={theme.colors.textMuted}>PRIMARY CONTACT</AppText>
 
-            <FormField label="Contact name">
-              <Controller control={control} name="contactName" render={({ field: { onChange, onBlur, value } }) => (
-                <TextInput
-                  value={value}
-                  onChangeText={onChange}
-                  onBlur={onBlur}
+            <Controller
+              control={control}
+              name="contactName"
+              render={({ field }) => (
+                <AppInput
+                  label="Contact name"
+                  value={field.value}
+                  onChangeText={field.onChange}
+                  onBlur={field.onBlur}
                   placeholder="e.g. Anika Patel"
-                  placeholderTextColor={theme.colors.textMuted}
-                  style={inputStyle}
                   returnKeyType="next"
                 />
-              )} />
-            </FormField>
+              )}
+            />
 
-            <FormField label="Phone">
-              <Controller control={control} name="contactPhone" render={({ field: { onChange, onBlur, value } }) => (
-                <TextInput
-                  value={value}
-                  onChangeText={onChange}
-                  onBlur={onBlur}
+            <Controller
+              control={control}
+              name="contactPhone"
+              render={({ field }) => (
+                <AppInput
+                  label="Phone"
+                  value={field.value}
+                  onChangeText={field.onChange}
+                  onBlur={field.onBlur}
                   placeholder="+91 98765 43210"
-                  placeholderTextColor={theme.colors.textMuted}
-                  style={inputStyle}
                   keyboardType="phone-pad"
                   returnKeyType="next"
                 />
-              )} />
-            </FormField>
+              )}
+            />
 
-            <FormField label="Email" error={errors.contactEmail?.message}>
-              <Controller control={control} name="contactEmail" render={({ field: { onChange, onBlur, value } }) => (
-                <TextInput
-                  value={value}
-                  onChangeText={onChange}
-                  onBlur={onBlur}
+            <Controller
+              control={control}
+              name="contactEmail"
+              render={({ field }) => (
+                <AppInput
+                  label="Email"
+                  value={field.value}
+                  onChangeText={field.onChange}
+                  onBlur={field.onBlur}
+                  error={errors.contactEmail?.message}
                   placeholder="name@company.com"
-                  placeholderTextColor={theme.colors.textMuted}
-                  style={inputStyle}
                   keyboardType="email-address"
                   autoCapitalize="none"
                   returnKeyType="next"
                 />
-              )} />
-            </FormField>
+              )}
+            />
 
             <AppText style={styles.sectionLabel} color={theme.colors.textMuted}>ADDRESS (OPTIONAL)</AppText>
 
-            <FormField label="Address line">
-              <Controller control={control} name="addressLine1" render={({ field: { onChange, onBlur, value } }) => (
-                <TextInput
-                  value={value}
-                  onChangeText={onChange}
-                  onBlur={onBlur}
+            <Controller
+              control={control}
+              name="addressLine1"
+              render={({ field }) => (
+                <AppInput
+                  label="Address line"
+                  value={field.value}
+                  onChangeText={field.onChange}
+                  onBlur={field.onBlur}
                   placeholder="Street, area"
-                  placeholderTextColor={theme.colors.textMuted}
-                  style={inputStyle}
                   returnKeyType="next"
                 />
-              )} />
-            </FormField>
+              )}
+            />
 
             <View style={styles.row}>
-              <View style={styles.rowItem}>
-                <FormField label="City">
-                  <Controller control={control} name="city" render={({ field: { onChange, onBlur, value } }) => (
-                    <TextInput
-                      value={value}
-                      onChangeText={onChange}
-                      onBlur={onBlur}
-                      placeholderTextColor={theme.colors.textMuted}
-                      style={inputStyle}
-                      returnKeyType="next"
-                    />
-                  )} />
-                </FormField>
-              </View>
-              <View style={styles.rowItem}>
-                <FormField label="State">
-                  <Controller control={control} name="state" render={({ field: { onChange, onBlur, value } }) => (
-                    <TextInput
-                      value={value}
-                      onChangeText={onChange}
-                      onBlur={onBlur}
-                      placeholderTextColor={theme.colors.textMuted}
-                      style={inputStyle}
-                      returnKeyType="next"
-                    />
-                  )} />
-                </FormField>
-              </View>
+              <Controller
+                control={control}
+                name="city"
+                render={({ field }) => (
+                  <AppInput
+                    label="City"
+                    value={field.value}
+                    onChangeText={field.onChange}
+                    onBlur={field.onBlur}
+                    returnKeyType="next"
+                    containerStyle={styles.rowItem}
+                  />
+                )}
+              />
+              <Controller
+                control={control}
+                name="state"
+                render={({ field }) => (
+                  <AppInput
+                    label="State"
+                    value={field.value}
+                    onChangeText={field.onChange}
+                    onBlur={field.onBlur}
+                    returnKeyType="next"
+                    containerStyle={styles.rowItem}
+                  />
+                )}
+              />
             </View>
 
-            <FormField label="Pincode">
-              <Controller control={control} name="pincode" render={({ field: { onChange, onBlur, value } }) => (
-                <TextInput
-                  value={value}
-                  onChangeText={onChange}
-                  onBlur={onBlur}
-                  placeholderTextColor={theme.colors.textMuted}
-                  style={inputStyle}
+            <Controller
+              control={control}
+              name="pincode"
+              render={({ field }) => (
+                <AppInput
+                  label="Pincode"
+                  value={field.value}
+                  onChangeText={field.onChange}
+                  onBlur={field.onBlur}
                   keyboardType="numeric"
                   returnKeyType="done"
                 />
-              )} />
-            </FormField>
+              )}
+            />
           </View>
 
           <TouchableOpacity
             onPress={() => { void handleSubmit(onSubmit)(); }}
-            style={[styles.submitBtn, { backgroundColor: PRIMARY, opacity: isSubmitting ? 0.7 : 1 }]}
+            style={[styles.submitBtn, { backgroundColor: theme.colors.primary, opacity: isSubmitting ? 0.7 : 1 }]}
             disabled={isSubmitting}
             activeOpacity={0.85}
           >
-            <AppText style={styles.submitBtnText}>{'✓  Create customer'}</AppText>
+            <CheckCircle size={18} color="#FFF" strokeWidth={2.5} style={{ marginRight: 8 }} />
+            <AppText style={styles.submitBtnText}>Create customer</AppText>
           </TouchableOpacity>
 
           <TouchableOpacity onPress={() => navigation.goBack()} style={styles.cancelLink} activeOpacity={0.7}>
@@ -287,27 +303,19 @@ const styles = StyleSheet.create({
   backBtn: { width: 38, height: 38, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
   pageTitle: { fontSize: 26, fontFamily: 'Inter-Bold', lineHeight: 32 },
   pageSub: { fontSize: 13, fontFamily: 'Inter-Regular', marginTop: 2 },
-  form: { gap: 18 },
-  fieldWrap: { gap: 6 },
-  fieldLabel: { fontSize: 14, fontFamily: 'Inter-SemiBold' },
-  sectionLabel: { fontSize: 11, fontFamily: 'Inter-SemiBold', letterSpacing: 1, marginTop: 4 },
-  input: {
-    height: 52,
-    borderRadius: 14,
-    paddingHorizontal: 16,
-    fontSize: 15,
-    fontFamily: 'Inter-Regular',
-    borderWidth: 1,
-  },
-  fieldError: { fontSize: 12, fontFamily: 'Inter-Regular', color: '#DC2626' },
+  form: { gap: 4 },
+  chipLabel: { fontSize: 12, fontFamily: 'Inter-SemiBold', marginBottom: 6, marginTop: 12 },
+  sectionLabel: { fontSize: 11, fontFamily: 'Inter-SemiBold', letterSpacing: 1, marginTop: 8, marginBottom: 4 },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   chip: { paddingHorizontal: 14, paddingVertical: 9, borderRadius: 20, borderWidth: 1 },
+  chipError: { fontSize: 12, fontFamily: 'Inter-Regular', marginTop: 4 },
   row: { flexDirection: 'row', gap: 12 },
   rowItem: { flex: 1 },
   submitBtn: {
     marginTop: 28,
     height: 56,
     borderRadius: 16,
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
   },

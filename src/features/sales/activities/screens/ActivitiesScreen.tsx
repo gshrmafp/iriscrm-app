@@ -4,12 +4,12 @@ import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Phone, Mail, CalendarCheck, Building2, Check } from 'lucide-react-native';
 import { useTheme } from '@/design-system';
 import { Screen } from '@/components/common/Screen';
 import { AppText } from '@/components/common/AppText';
 import { NotificationBell } from '@/components/common/NotificationBell';
-import { EmptyState } from '@/components/feedback/EmptyState';
-import { Loader } from '@/components/feedback/Loader';
+import { SkeletonActivityItem, EmptyState } from '@/components/feedback';
 import { leadsApi, FollowUp, FollowUpPriority } from '@/services/api/leads.api';
 import { SalesStackParamList } from '@/features/sales/navigation/types';
 import { isToday, isOverdue, formatFollowUpTime } from '@/utils/date';
@@ -17,10 +17,12 @@ import { isToday, isOverdue, formatFollowUpTime } from '@/utils/date';
 type Nav = NativeStackNavigationProp<SalesStackParamList>;
 
 const PAGE_SIZE = 20;
-const PRIMARY = '#3B4ECC';
 
-const CHANNEL_ICON: Record<string, string> = {
-  call: '📞', meeting: '🤝', email: '✉', visit: '🏢',
+const CHANNEL_ICON: Record<string, React.ComponentType<any>> = {
+  call: Phone,
+  email: Mail,
+  meeting: CalendarCheck,
+  visit: Building2,
 };
 
 const PRIORITY_STYLE: Record<FollowUpPriority, { bg: string; color: string; label: string }> = {
@@ -46,7 +48,7 @@ function ActivityItem({ item, onPress, onToggle, toggling }: {
   const theme = useTheme();
   const completed = Boolean(item.completedAt);
   const pStyle = PRIORITY_STYLE[item.priority] ?? PRIORITY_STYLE.MEDIUM;
-  const channelIcon = CHANNEL_ICON[item.channel] ?? '◎';
+  const ChannelIcon = CHANNEL_ICON[item.channel] ?? CalendarCheck;
   const timeLabel = item.nextActionAt ? formatFollowUpTime(item.nextActionAt) : '';
   const companyName = item.lead ? (item.lead.companyName ?? item.lead.contactName) : '';
 
@@ -68,11 +70,11 @@ function ActivityItem({ item, onPress, onToggle, toggling }: {
         style={[styles.checkbox, { borderColor: completed ? '#10B981' : theme.colors.border, backgroundColor: completed ? '#10B981' : 'transparent' }]}
         activeOpacity={0.75}
       >
-        {completed && <AppText style={styles.checkMark}>✓</AppText>}
+        {completed && <Check size={12} color="#FFF" strokeWidth={3} />}
       </TouchableOpacity>
 
-      <View style={[styles.channelIcon, { backgroundColor: '#EEF2FF' }]}>
-        <AppText style={styles.channelIconText}>{channelIcon}</AppText>
+      <View style={[styles.channelIcon, { backgroundColor: theme.colors.primaryLight }]}>
+        <ChannelIcon size={14} color={theme.colors.primary} strokeWidth={2} />
       </View>
 
       <View style={styles.itemContent}>
@@ -133,7 +135,7 @@ export function ActivitiesScreen() {
   });
 
   return (
-    <Screen edges={['left', 'right', 'bottom']}>
+    <Screen edges={['left', 'right']}>
       <FlatList
         data={filteredItems}
         keyExtractor={item => item.id}
@@ -145,7 +147,7 @@ export function ActivitiesScreen() {
             <View style={[styles.header, { paddingTop: insets.top + 8, backgroundColor: theme.colors.surface, borderBottomColor: theme.colors.border }]}>
               <View style={styles.headerTop}>
                 <View style={{ flex: 1 }}>
-                  <AppText style={styles.brandLabel}>IRIS CRM</AppText>
+                  <AppText style={[styles.brandLabel, { color: theme.colors.primary }]}>IRIS CRM</AppText>
                   <AppText style={styles.pageTitle} color={theme.colors.text}>Activities</AppText>
                   <AppText style={styles.pageSubtitle} color={theme.colors.textMuted}>Your follow-up queue</AppText>
                 </View>
@@ -158,7 +160,7 @@ export function ActivitiesScreen() {
                     <TouchableOpacity
                       key={f.value}
                       onPress={() => setActiveFilter(f.value)}
-                      style={[styles.chip, { backgroundColor: active ? PRIMARY : theme.colors.surface, borderColor: active ? PRIMARY : theme.colors.border }]}
+                      style={[styles.chip, { backgroundColor: active ? theme.colors.primary : theme.colors.surface, borderColor: active ? theme.colors.primary : theme.colors.border }]}
                     >
                       <AppText style={chipActiveStyle(active)}>{f.label}</AppText>
                     </TouchableOpacity>
@@ -166,16 +168,19 @@ export function ActivitiesScreen() {
                 })}
               </View>
             </View>
-            {isLoading && <Loader />}
             {isError && <EmptyState title="Could not load activities" message="Pull to refresh" action={{ label: 'Retry', onPress: refetch }} />}
           </View>
         }
         contentContainerStyle={styles.list}
         ListFooterComponent={isFetchingNextPage
-          ? () => <View style={styles.loader}><ActivityIndicator color={PRIMARY} /></View>
+          ? () => <View style={styles.loader}><ActivityIndicator color={theme.colors.primary} /></View>
           : undefined}
         ListEmptyComponent={
-          !isLoading && !isError ? (
+          isLoading ? (
+            <View style={{ paddingHorizontal: 12, paddingTop: 8 }}>
+              {[1, 2, 3, 4].map(i => <SkeletonActivityItem key={i} />)}
+            </View>
+          ) : !isError ? (
             <EmptyState title="No activities" message="Follow-ups you log on leads appear here" />
           ) : undefined
         }
@@ -200,21 +205,15 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   headerTop: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between' },
-  brandLabel: { fontSize: 11, fontFamily: 'Inter-SemiBold', color: PRIMARY, letterSpacing: 1.2, marginBottom: 2 },
+  brandLabel: { fontSize: 11, fontFamily: 'Inter-SemiBold', letterSpacing: 1.2, marginBottom: 2 },
   pageTitle: { fontSize: 28, fontFamily: 'Inter-Bold', lineHeight: 34 },
   pageSubtitle: { fontSize: 12, fontFamily: 'Inter-Regular', marginTop: 2 },
-  bellBtn: { width: 42, height: 42, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
-  bellIcon: { fontSize: 16 },
-  bellBadge: { position: 'absolute', top: -2, right: -2, backgroundColor: '#DC2626', width: 16, height: 16, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
-  bellBadgeText: { fontSize: 9, fontFamily: 'Inter-Bold', color: '#FFF' },
   filterRow: { flexDirection: 'row', gap: 8 },
   chip: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20, borderWidth: 1 },
   list: { paddingHorizontal: 12, paddingBottom: 24, paddingTop: 12, gap: 8 },
   itemCard: { flexDirection: 'row', alignItems: 'center', gap: 10, borderRadius: 14, borderWidth: 1, padding: 14 },
   checkbox: { width: 22, height: 22, borderRadius: 11, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
-  checkMark: { fontSize: 12, color: '#FFF' },
   channelIcon: { width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
-  channelIconText: { fontSize: 14 },
   itemContent: { flex: 1, gap: 2 },
   itemTitle: { fontSize: 14, fontFamily: 'Inter-SemiBold', lineHeight: 18 },
   itemCompany: { fontSize: 12, fontFamily: 'Inter-Regular' },

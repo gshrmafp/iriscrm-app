@@ -8,8 +8,7 @@ import { logout } from '@/app/store/slices/authSlice';
 import { clearTokens } from '@/services/storage/secureStorage';
 import { ThemeMode } from '@/design-system/theme';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-
-const PRIMARY = '#3B4ECC';
+import { Sun, Bell, Shield, HelpCircle, LogOut, Edit3 } from 'lucide-react-native';
 
 const ROLE_LABELS: Record<string, string> = {
   SUPER_ADMIN: 'Super Admin',
@@ -33,8 +32,8 @@ function SectionHeader({ title }: { title: string }) {
   );
 }
 
-function MenuItem({ icon, label, subtitle, onPress, danger, right }: {
-  icon: string;
+function MenuItem({ Icon, label, subtitle, onPress, danger, right }: {
+  Icon: React.ComponentType<any>;
   label: string;
   subtitle?: string;
   onPress?: () => void;
@@ -49,7 +48,7 @@ function MenuItem({ icon, label, subtitle, onPress, danger, right }: {
       activeOpacity={0.75}
     >
       <View style={[styles.menuItemIcon, { backgroundColor: danger ? '#FEE2E2' : theme.colors.surfaceAlt }]}>
-        <AppText style={styles.menuItemIconText}>{icon}</AppText>
+        <Icon size={18} color={danger ? '#DC2626' : theme.colors.textSecondary} strokeWidth={2} />
       </View>
       <View style={{ flex: 1 }}>
         <AppText style={styles.menuItemLabel} color={danger ? '#DC2626' : theme.colors.text}>{label}</AppText>
@@ -100,11 +99,11 @@ export function ProfileScreen() {
   const avatarBg = avatarColor(displayName);
 
   return (
-    <Screen edges={['left', 'right', 'bottom']}>
+    <Screen edges={['left', 'right']}>
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={[styles.scroll, { paddingTop: insets.top + 8 }]}>
         {/* Header */}
         <View style={[styles.pageHeader, { borderBottomColor: theme.colors.border }]}>
-          <AppText style={styles.brandLabel}>IRIS CRM</AppText>
+          <AppText style={[styles.brandLabel, { color: theme.colors.primary }]}>IRIS CRM</AppText>
           <AppText style={styles.pageTitle} color={theme.colors.text}>Profile</AppText>
           <AppText style={styles.pageSubtitle} color={theme.colors.textMuted}>Account and preferences</AppText>
         </View>
@@ -121,7 +120,7 @@ export function ProfileScreen() {
             </AppText>
           </View>
           <TouchableOpacity style={[styles.editBtn, { backgroundColor: theme.colors.surfaceAlt, borderColor: theme.colors.border }]}>
-            <AppText style={styles.menuItemIconText}>✎</AppText>
+            <Edit3 size={16} color={theme.colors.textSecondary} strokeWidth={2} />
           </TouchableOpacity>
         </View>
 
@@ -131,7 +130,7 @@ export function ProfileScreen() {
           {/* Appearance with inline toggle */}
           <View style={[styles.menuItem, { borderBottomColor: theme.colors.border }]}>
             <View style={[styles.menuItemIcon, { backgroundColor: theme.colors.surfaceAlt }]}>
-              <AppText style={styles.menuItemIconText}>☀</AppText>
+              <Sun size={18} color={theme.colors.textSecondary} strokeWidth={2} />
             </View>
             <View style={{ flex: 1 }}>
               <AppText style={styles.menuItemLabel} color={theme.colors.text}>Appearance</AppText>
@@ -145,7 +144,7 @@ export function ProfileScreen() {
                   <TouchableOpacity
                     key={mode}
                     onPress={() => setThemeMode(mode)}
-                    style={[styles.themeChip, { backgroundColor: active ? PRIMARY : theme.colors.surfaceAlt }]}
+                    style={[styles.themeChip, { backgroundColor: active ? theme.colors.primary : theme.colors.surfaceAlt }]}
                   >
                     <AppText
                       style={styles.themeChipText}
@@ -158,16 +157,16 @@ export function ProfileScreen() {
               })}
             </View>
           </View>
-          <MenuItem icon="🔔" label="Notifications" subtitle="Activity reminders are on" />
-          <MenuItem icon="🛡" label="Privacy & security" subtitle="Manage your workspace access" />
+          <MenuItem Icon={Bell} label="Notifications" subtitle="Activity reminders are on" />
+          <MenuItem Icon={Shield} label="Privacy & security" subtitle="Manage your workspace access" />
         </MenuCard>
 
         {/* Workspace section */}
         <SectionHeader title="Workspace" />
         <MenuCard>
-          <MenuItem icon="❓" label="Help center" subtitle="Get support from the IRIS team" />
+          <MenuItem Icon={HelpCircle} label="Help center" subtitle="Get support from the IRIS team" />
           <MenuItem
-            icon="→"
+            Icon={LogOut}
             label="Sign out"
             subtitle="End this session"
             onPress={handleLogout}
@@ -189,7 +188,7 @@ const styles = StyleSheet.create({
     paddingBottom: 16,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  brandLabel: { fontSize: 11, fontFamily: 'Inter-SemiBold', color: PRIMARY, letterSpacing: 1.2, marginBottom: 2 },
+  brandLabel: { fontSize: 11, fontFamily: 'Inter-SemiBold', letterSpacing: 1.2, marginBottom: 2 },
   pageTitle: { fontSize: 28, fontFamily: 'Inter-Bold', lineHeight: 34 },
   pageSubtitle: { fontSize: 12, fontFamily: 'Inter-Regular', marginTop: 2 },
 
@@ -226,10 +225,9 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   menuItemIcon: { width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
-  menuItemIconText: { fontSize: 18 },
   menuItemLabel: { fontSize: 15, fontFamily: 'Inter-Medium' },
   menuItemSub: { fontSize: 12, fontFamily: 'Inter-Regular', marginTop: 1 },
-  chevron: { fontSize: 22 },
+  chevron: { fontSize: 22, lineHeight: 26 },
 
   themeToggle: { flexDirection: 'row', gap: 4 },
   themeChip: { paddingHorizontal: 9, paddingVertical: 5, borderRadius: 8 },

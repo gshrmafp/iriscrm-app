@@ -16,11 +16,9 @@ import {
   canWinOpportunity,
   isOpportunityClosed,
 } from '@/services/api/opportunities.api';
+import { DARK_NAVY } from '@/constants/brandColors';
 
 type RouteProps = RouteProp<SalesStackParamList, 'OpportunityDetail'>;
-
-const PRIMARY = '#3B4ECC';
-const DARK_NAVY = '#111C40';
 
 const STAGE_LABEL: Record<OpportunityStage, string> = {
   NEW: 'New',
@@ -230,7 +228,7 @@ const styles = StyleSheet.create({
   errorCenter: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   dealCard: { borderRadius: 16, padding: 20, marginBottom: 16 },
   dealCardLabel: { fontSize: 10, fontFamily: 'Inter-SemiBold', color: 'rgba(255,255,255,0.55)', letterSpacing: 1, marginBottom: 6 },
-  dealCardValue: { fontSize: 30, fontFamily: 'Inter-Bold', color: '#FFFFFF' },
+  dealCardValue: { fontSize: 30, lineHeight: 36, fontFamily: 'Inter-Bold', color: '#FFFFFF' },
   dealCardSub: { fontSize: 12, fontFamily: 'Inter-Regular', color: 'rgba(255,255,255,0.65)', marginTop: 4 },
   actionsSection: { marginBottom: 16 },
   winCard: { borderRadius: 14, borderWidth: 1, padding: 14, marginBottom: 10 },

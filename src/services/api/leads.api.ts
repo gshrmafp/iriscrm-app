@@ -75,8 +75,15 @@ export interface CreateLeadResult {
 }
 
 export const leadsApi = {
-  list: (params: { page?: number; pageSize?: number; search?: string; status?: string }) =>
-    apiClient.get<LeadsPage>('/leads', { params }),
+  list: (params: {
+    page?: number;
+    pageSize?: number;
+    search?: string;
+    status?: string;
+    // Filters by the linked Opportunity's stage (e.g. QUOTED) instead of the
+    // lead's own status — a lead only has one once it's been qualified.
+    opportunityStage?: string;
+  }) => apiClient.get<LeadsPage>('/leads', { params }),
 
   dashboardSummary: (params?: { ownerId?: string }) =>
     apiClient.get<LeadDashboardSummary>('/leads/dashboard-summary', { params }),

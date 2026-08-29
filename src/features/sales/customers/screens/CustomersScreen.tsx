@@ -1,15 +1,16 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState } from 'react';
 import { View, FlatList, TouchableOpacity, TextInput, StyleSheet, ActivityIndicator, TextStyle } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useInfiniteQuery } from '@tanstack/react-query';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Search, Plus } from 'lucide-react-native';
 import { useTheme } from '@/design-system';
 import { Screen } from '@/components/common/Screen';
 import { AppText } from '@/components/common/AppText';
 import { NotificationBell } from '@/components/common/NotificationBell';
-import { EmptyState } from '@/components/feedback/EmptyState';
-import { Loader } from '@/components/feedback/Loader';
+import { EmptyState, SkeletonCustomerCard } from '@/components/feedback';
+import { useDebounceSearch } from '@/hooks/useDebounceSearch';
 import { SalesStackParamList } from '@/features/sales/navigation/types';
 import { customersApi, Customer } from '@/services/api/customers.api';
 import { isWithinDays } from '@/utils/date';
@@ -17,7 +18,6 @@ import { isWithinDays } from '@/utils/date';
 type Nav = NativeStackNavigationProp<SalesStackParamList>;
 
 const PAGE_SIZE = 20;
-const PRIMARY = '#3B4ECC';
 
 const AVATAR_COLORS = [
   '#059669', '#DC2626', '#7C3AED', '#B45309',
@@ -46,9 +46,6 @@ function formatRevenue(revenue?: string | null): string | null {
   return `₹${val}`;
 }
 
-// A real, timestamp-derived signal — not a stored/subjective "health score".
-// New: customer created recently. Healthy: a linked lead moved in the last
-// 30 days. At risk: neither of the above, or explicitly deactivated.
 function getHealth(customer: Customer): HealthStatus {
   if (!customer.active) return 'At risk';
   if (isWithinDays(customer.createdAt, 14)) return 'New';
@@ -101,15 +98,7 @@ export function CustomersScreen() {
   const theme = useTheme();
   const navigation = useNavigation<Nav>();
   const insets = useSafeAreaInsets();
-  const [search, setSearch] = useState('');
-  const [debouncedSearch, setDebouncedSearch] = useState('');
-  const searchTimer = React.useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-
-  const handleSearch = useCallback((text: string) => {
-    setSearch(text);
-    clearTimeout(searchTimer.current);
-    searchTimer.current = setTimeout(() => setDebouncedSearch(text), 400);
-  }, []);
+  const { value: search, debouncedValue: debouncedSearch, onChange: handleSearch } = useDebounceSearch();
 
   const { data, fetchNextPage, hasNextPage, isFetchingNextPage, isLoading, isError, refetch } =
     useInfiniteQuery({
@@ -137,7 +126,7 @@ export function CustomersScreen() {
   };
 
   return (
-    <Screen edges={['left', 'right', 'bottom']}>
+    <Screen edges={['left', 'right']}>
       <FlatList
         data={customers}
         keyExtractor={item => item.id}
@@ -149,7 +138,7 @@ export function CustomersScreen() {
             <View style={[styles.header, { paddingTop: insets.top + 8, backgroundColor: theme.colors.surface, borderBottomColor: theme.colors.border }]}>
               <View style={styles.headerTop}>
                 <View style={{ flex: 1 }}>
-                  <AppText style={styles.brandLabel}>IRIS CRM</AppText>
+                  <AppText style={[styles.brandLabel, { color: theme.colors.primary }]}>IRIS CRM</AppText>
                   <AppText style={styles.pageTitle} color={theme.colors.text}>Customers</AppText>
                   <AppText style={styles.pageSubtitle} color={theme.colors.textMuted}>
                     {totalCount > 0 ? `${totalCount} active relationships` : 'Your customers will appear here'}
@@ -158,15 +147,15 @@ export function CustomersScreen() {
                 <View style={styles.headerActions}>
                   <TouchableOpacity
                     onPress={() => navigation.navigate('CustomerCreate')}
-                    style={[styles.addBtn, { backgroundColor: PRIMARY }]}
+                    style={[styles.addBtn, { backgroundColor: theme.colors.primary }]}
                   >
-                    <AppText style={styles.addBtnText}>+</AppText>
+                    <Plus size={20} color="#FFF" strokeWidth={2.5} />
                   </TouchableOpacity>
                   <NotificationBell onPress={() => navigation.navigate('Notifications')} />
                 </View>
               </View>
               <View style={[styles.searchWrap, { backgroundColor: theme.colors.surfaceAlt, borderRadius: 12 }]}>
-                <AppText style={styles.searchIcon} color={theme.colors.textMuted}>⌕</AppText>
+                <Search size={16} color={theme.colors.textMuted} style={{ marginRight: 8 }} />
                 <TextInput
                   value={search}
                   onChangeText={handleSearch}
@@ -183,24 +172,25 @@ export function CustomersScreen() {
                 <AppText style={styles.healthCount}>{healthyCount} healthy</AppText>
               </View>
             )}
-            {isLoading && <Loader />}
           </View>
         }
         contentContainerStyle={styles.list}
         ListFooterComponent={isFetchingNextPage
-          ? () => <View style={styles.loader}><ActivityIndicator color={PRIMARY} /></View>
+          ? () => <View style={styles.loader}><ActivityIndicator color={theme.colors.primary} /></View>
           : undefined}
         ListEmptyComponent={
-          !isLoading ? (
-            isError ? (
-              <EmptyState title="Could not load clients" message="Pull to refresh" action={{ label: 'Retry', onPress: refetch }} />
-            ) : (
-              <EmptyState
-                title="No customers yet"
-                message={debouncedSearch ? 'Try different search terms' : 'Customers converted from qualified leads appear here'}
-              />
-            )
-          ) : undefined
+          isLoading ? (
+            <View style={{ paddingHorizontal: 12, paddingTop: 10 }}>
+              {[1, 2, 3, 4, 5].map(i => <SkeletonCustomerCard key={i} />)}
+            </View>
+          ) : isError ? (
+            <EmptyState title="Could not load clients" message="Pull to refresh" action={{ label: 'Retry', onPress: refetch }} />
+          ) : (
+            <EmptyState
+              title="No customers yet"
+              message={debouncedSearch ? 'Try different search terms' : 'Customers converted from qualified leads appear here'}
+            />
+          )
         }
         renderItem={({ item }) => (
           <CustomerCard item={item} onPress={() => navigation.navigate('CustomerDetail', { id: item.id })} />
@@ -218,14 +208,12 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   headerTop: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between' },
-  brandLabel: { fontSize: 11, fontFamily: 'Inter-SemiBold', color: PRIMARY, letterSpacing: 1.2, marginBottom: 2 },
+  brandLabel: { fontSize: 11, fontFamily: 'Inter-SemiBold', letterSpacing: 1.2, marginBottom: 2 },
   pageTitle: { fontSize: 28, fontFamily: 'Inter-Bold', lineHeight: 34 },
   pageSubtitle: { fontSize: 12, fontFamily: 'Inter-Regular', marginTop: 2 },
   headerActions: { flexDirection: 'row', gap: 8, alignItems: 'center' },
   addBtn: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
-  addBtnText: { fontSize: 22, color: '#FFF', fontFamily: 'Inter-Regular', lineHeight: 28, marginTop: -2 },
   searchWrap: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, height: 44 },
-  searchIcon: { fontSize: 14, marginRight: 8 },
   healthRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth },
   healthLabel: { fontSize: 13, fontFamily: 'Inter-Regular' },
   healthCount: { fontSize: 13, fontFamily: 'Inter-SemiBold', color: '#059669' },

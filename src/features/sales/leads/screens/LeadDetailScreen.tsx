@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   ScrollView,
   View,
@@ -8,6 +8,7 @@ import {
   Modal,
   TextInput,
   KeyboardAvoidingView,
+  Keyboard,
   Platform,
   ActivityIndicator,
   Linking,
@@ -16,6 +17,7 @@ import { RouteProp, useRoute, useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Phone, Mail, CalendarDays, Target, MapPin, MoreHorizontal, ChevronLeft, ChevronRight, Zap } from 'lucide-react-native';
 import { useTheme } from '@/design-system';
 import { Screen } from '@/components/common/Screen';
 import { AppText } from '@/components/common/AppText';
@@ -24,12 +26,10 @@ import { Loader } from '@/components/feedback/Loader';
 import { SalesStackParamList } from '@/features/sales/navigation/types';
 import { leadsApi } from '@/services/api/leads.api';
 import { formatFollowUpTime } from '@/utils/date';
+import { DARK_NAVY } from '@/constants/brandColors';
 
 type RouteProps = RouteProp<SalesStackParamList, 'LeadDetail'>;
 type Nav = NativeStackNavigationProp<SalesStackParamList>;
-
-const PRIMARY = '#3B4ECC';
-const DARK_NAVY = '#111C40';
 
 const AVATAR_COLORS = [
   '#3B4ECC', '#7C3AED', '#059669', '#B45309',
@@ -42,9 +42,6 @@ function avatarColor(name: string): string {
   return AVATAR_COLORS[Math.abs(h) % AVATAR_COLORS.length];
 }
 
-// Real LeadStatus values only (NEW | QUALIFIED | LOST). A qualified lead's
-// Opportunity has its own richer stage (NEW/CONTACTED/QUOTED/NEGOTIATION/
-// WON/LOST) — shown via the Opportunity card below, not fabricated here.
 const STATUS_INFO: Record<string, { label: string; bg: string; color: string }> = {
   NEW:       { label: 'New',       bg: '#FEF3C7', color: '#D97706' },
   QUALIFIED: { label: 'Qualified', bg: '#D1FAE5', color: '#065F46' },
@@ -65,6 +62,26 @@ function formatCurrency(val: string | number): string {
   return `₹${num}`;
 }
 
+// The extra safe-area padding is only for the Android nav bar / iOS home
+// indicator — once the keyboard is up it already covers that area, so
+// keeping the padding on top of it would just push Save further up for no
+// reason. Android fires *Did* events; iOS fires *Will* (smoother with the
+// keyboard's own slide animation).
+function useKeyboardVisible() {
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    const showEvent = Platform.OS === 'android' ? 'keyboardDidShow' : 'keyboardWillShow';
+    const hideEvent = Platform.OS === 'android' ? 'keyboardDidHide' : 'keyboardWillHide';
+    const showSub = Keyboard.addListener(showEvent, () => setVisible(true));
+    const hideSub = Keyboard.addListener(hideEvent, () => setVisible(false));
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
+  return visible;
+}
+
 function QualifyModal({ visible, onClose, onSubmit, loading }: {
   visible: boolean;
   onClose: () => void;
@@ -72,13 +89,15 @@ function QualifyModal({ visible, onClose, onSubmit, loading }: {
   loading: boolean;
 }) {
   const theme = useTheme();
+  const insets = useSafeAreaInsets();
+  const keyboardVisible = useKeyboardVisible();
   const [dealType, setDealType] = useState('INSTALLATION');
   const [value, setValue] = useState('');
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <KeyboardAvoidingView style={styles.modalOverlay} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <View style={[styles.modalSheet, { backgroundColor: theme.colors.surface }]}>
+      <KeyboardAvoidingView style={styles.modalOverlay} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+        <View style={[styles.modalSheet, { backgroundColor: theme.colors.surface, paddingBottom: 20 + (keyboardVisible ? 0 : insets.bottom) }]}>
           <View style={[styles.modalHandle, { backgroundColor: theme.colors.border }]} />
           <AppText style={styles.modalTitle} color={theme.colors.text}>Qualify into an opportunity</AppText>
           <View style={styles.channelRow}>
@@ -86,7 +105,7 @@ function QualifyModal({ visible, onClose, onSubmit, loading }: {
               <TouchableOpacity
                 key={t.value}
                 onPress={() => setDealType(t.value)}
-                style={[styles.channelChip, { backgroundColor: dealType === t.value ? PRIMARY : theme.colors.surfaceAlt }]}
+                style={[styles.channelChip, { backgroundColor: dealType === t.value ? theme.colors.primary : theme.colors.surfaceAlt }]}
               >
                 <AppText style={{ fontSize: 12, fontFamily: 'Inter-Medium', color: dealType === t.value ? '#FFF' : theme.colors.textSecondary }}>
                   {t.label}
@@ -122,12 +141,12 @@ function QualifyModal({ visible, onClose, onSubmit, loading }: {
   );
 }
 
-function ContactRow({ icon, label, value }: { icon: string; label: string; value: string }) {
+function ContactRow({ Icon, label, value }: { Icon: React.ComponentType<any>; label: string; value: string }) {
   const theme = useTheme();
   return (
     <View style={styles.contactRow}>
-      <View style={[styles.contactIcon, { backgroundColor: '#EEF2FF' }]}>
-        <AppText style={{ fontSize: 14, color: PRIMARY }}>{icon}</AppText>
+      <View style={[styles.contactIcon, { backgroundColor: theme.colors.primaryLight }]}>
+        <Icon size={16} color={theme.colors.primary} strokeWidth={2} />
       </View>
       <View style={{ flex: 1, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
         <AppText style={styles.contactLabel} color={theme.colors.textMuted}>{label}</AppText>
@@ -144,14 +163,16 @@ function FollowUpModal({ visible, onClose, onSubmit, loading }: {
   loading: boolean;
 }) {
   const theme = useTheme();
+  const insets = useSafeAreaInsets();
+  const keyboardVisible = useKeyboardVisible();
   const [note, setNote] = useState('');
   const [channel, setChannel] = useState('call');
   const channels = ['call', 'email', 'meeting', 'visit'];
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <KeyboardAvoidingView style={styles.modalOverlay} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <View style={[styles.modalSheet, { backgroundColor: theme.colors.surface }]}>
+      <KeyboardAvoidingView style={styles.modalOverlay} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+        <View style={[styles.modalSheet, { backgroundColor: theme.colors.surface, paddingBottom: 20 + (keyboardVisible ? 0 : insets.bottom) }]}>
           <View style={[styles.modalHandle, { backgroundColor: theme.colors.border }]} />
           <AppText style={styles.modalTitle} color={theme.colors.text}>Log Follow-up</AppText>
           <View style={styles.channelRow}>
@@ -159,7 +180,7 @@ function FollowUpModal({ visible, onClose, onSubmit, loading }: {
               <TouchableOpacity
                 key={c}
                 onPress={() => setChannel(c)}
-                style={[styles.channelChip, { backgroundColor: channel === c ? PRIMARY : theme.colors.surfaceAlt }]}
+                style={[styles.channelChip, { backgroundColor: channel === c ? theme.colors.primary : theme.colors.surfaceAlt }]}
               >
                 <AppText style={{ fontSize: 12, fontFamily: 'Inter-Medium', color: channel === c ? '#FFF' : theme.colors.textSecondary, textTransform: 'capitalize' }}>
                   {c}
@@ -273,7 +294,7 @@ export function LeadDetailScreen() {
       {/* Top nav bar */}
       <View style={[styles.navBar, { paddingTop: insets.top + 4, backgroundColor: theme.colors.surface, borderBottomColor: theme.colors.border }]}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={[styles.backBtn, { backgroundColor: theme.colors.surfaceAlt }]}>
-          <AppText style={{ fontSize: 18, color: theme.colors.text }}>←</AppText>
+          <ChevronLeft size={20} color={theme.colors.text} strokeWidth={2} />
         </TouchableOpacity>
         <View style={styles.navCenter}>
           <View style={[styles.navAvatar, { backgroundColor: avatarBg }]}>
@@ -284,16 +305,18 @@ export function LeadDetailScreen() {
             {company ? <AppText style={styles.navCompany} color={theme.colors.textMuted} numberOfLines={1}>{company}</AppText> : null}
           </View>
         </View>
-        <View style={styles.moreBtn} />
+        <TouchableOpacity style={[styles.moreBtn, { backgroundColor: theme.colors.surfaceAlt }]} activeOpacity={0.75}>
+          <MoreHorizontal size={18} color={theme.colors.textMuted} strokeWidth={2} />
+        </TouchableOpacity>
       </View>
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scroll}>
         {/* 3 action buttons */}
         <View style={styles.actionRow}>
           {[
-            { icon: '📞', label: 'Call', onPress: data.contactPhone ? () => handleCall(data.contactPhone!) : undefined },
-            { icon: '✉', label: 'Email', onPress: data.contactEmail ? () => handleEmail(data.contactEmail!) : undefined },
-            { icon: '📅', label: 'Follow up', onPress: () => setFollowUpModal(true) },
+            { Icon: Phone, label: 'Call', onPress: data.contactPhone ? () => handleCall(data.contactPhone!) : undefined },
+            { Icon: Mail, label: 'Email', onPress: data.contactEmail ? () => handleEmail(data.contactEmail!) : undefined },
+            { Icon: CalendarDays, label: 'Follow up', onPress: () => setFollowUpModal(true) },
           ].map(a => (
             <TouchableOpacity
               key={a.label}
@@ -302,8 +325,8 @@ export function LeadDetailScreen() {
               style={[styles.actionCard, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border, opacity: a.onPress ? 1 : 0.4 }]}
               activeOpacity={0.75}
             >
-              <View style={[styles.actionIcon, { backgroundColor: '#EEF2FF' }]}>
-                <AppText style={{ fontSize: 18 }}>{a.icon}</AppText>
+              <View style={[styles.actionIcon, { backgroundColor: theme.colors.primaryLight }]}>
+                <a.Icon size={20} color={theme.colors.primary} strokeWidth={2} />
               </View>
               <AppText style={styles.actionLabel} color={theme.colors.text}>{a.label}</AppText>
             </TouchableOpacity>
@@ -322,7 +345,8 @@ export function LeadDetailScreen() {
               <AppText style={styles.dealCardValue}>{formatCurrency(opportunity.value)}</AppText>
             </View>
             <View style={[styles.statusPill, { backgroundColor: 'rgba(255,255,255,0.15)' }]}>
-              <AppText style={styles.statusPillText} color="#FFFFFF">{opportunity.stage} ›</AppText>
+              <AppText style={styles.statusPillText} color="#FFFFFF">{opportunity.stage}</AppText>
+              <ChevronRight size={14} color="#FFFFFF" strokeWidth={2} />
             </View>
           </TouchableOpacity>
         ) : data.status === 'NEW' ? (
@@ -351,10 +375,10 @@ export function LeadDetailScreen() {
         {(data.contactEmail || data.contactPhone || data.address) && (
           <View style={[styles.section, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
             <AppText style={{ ...styles.sectionTitle, marginBottom: 12 }} color={theme.colors.text}>Contact details</AppText>
-            {data.source && <ContactRow icon="◈" label="Source" value={data.source} />}
-            {data.contactEmail && <ContactRow icon="✉" label="Email" value={data.contactEmail} />}
-            {data.contactPhone && <ContactRow icon="☎" label="Phone" value={data.contactPhone} />}
-            {data.address && <ContactRow icon="⌖" label="Address" value={data.address} />}
+            {data.source && <ContactRow Icon={Target} label="Source" value={data.source} />}
+            {data.contactEmail && <ContactRow Icon={Mail} label="Email" value={data.contactEmail} />}
+            {data.contactPhone && <ContactRow Icon={Phone} label="Phone" value={data.contactPhone} />}
+            {data.address && <ContactRow Icon={MapPin} label="Address" value={data.address} />}
           </View>
         )}
 
@@ -363,12 +387,12 @@ export function LeadDetailScreen() {
           <View style={[styles.section, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
             <AppText style={{ ...styles.sectionTitle, marginBottom: 12 }} color={theme.colors.text}>Next best action</AppText>
             <TouchableOpacity
-              style={[styles.nextActionCard, { backgroundColor: '#EEF2FF' }]}
+              style={[styles.nextActionCard, { backgroundColor: theme.colors.primaryLight }]}
               activeOpacity={0.75}
               onPress={() => setFollowUpModal(true)}
             >
-              <View style={[styles.nextActionIcon, { backgroundColor: PRIMARY }]}>
-                <AppText style={{ fontSize: 16 }}>⚡</AppText>
+              <View style={[styles.nextActionIcon, { backgroundColor: theme.colors.primary }]}>
+                <Zap size={18} color="#FFF" strokeWidth={2} />
               </View>
               <View style={{ flex: 1 }}>
                 <AppText style={styles.nextActionTitle} color={theme.colors.text} numberOfLines={1}>
@@ -378,7 +402,7 @@ export function LeadDetailScreen() {
                   Last touch {lastFollowUp.createdAt ? new Date(lastFollowUp.createdAt).toLocaleString('en-IN', { weekday: 'short', hour: '2-digit', minute: '2-digit' }) : ''}
                 </AppText>
               </View>
-              <AppText style={{ fontSize: 18, color: PRIMARY }}>›</AppText>
+              <ChevronRight size={18} color={theme.colors.primary} strokeWidth={2} />
             </TouchableOpacity>
           </View>
         )}
@@ -391,8 +415,6 @@ export function LeadDetailScreen() {
           </View>
         )}
 
-        {/* Mark as lost — only meaningful before qualifying; once there's an
-            Opportunity, closing it lost happens on the Opportunity itself. */}
         {data.status === 'NEW' && (
           <TouchableOpacity onPress={handleMarkLost} style={styles.lostBtn} activeOpacity={0.75}>
             <AppText style={styles.lostBtnText}>Mark as Lost</AppText>
@@ -443,18 +465,12 @@ const styles = StyleSheet.create({
 
   dealCard: { marginHorizontal: 16, borderRadius: 16, padding: 20, flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 12 },
   dealCardLabel: { fontSize: 10, fontFamily: 'Inter-SemiBold', color: 'rgba(255,255,255,0.55)', letterSpacing: 1, marginBottom: 6 },
-  dealCardValue: { fontSize: 30, fontFamily: 'Inter-Bold', color: '#FFFFFF' },
-  statusPill: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20 },
+  dealCardValue: { fontSize: 30, lineHeight: 36, fontFamily: 'Inter-Bold', color: '#FFFFFF' },
+  statusPill: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, flexDirection: 'row', alignItems: 'center', gap: 4 },
   statusPillText: { fontSize: 12, fontFamily: 'Inter-SemiBold' },
 
   section: { marginHorizontal: 16, borderRadius: 16, borderWidth: 1, padding: 16, marginBottom: 12 },
-  sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 },
   sectionTitle: { fontSize: 16, fontFamily: 'Inter-SemiBold' },
-  updateLink: { fontSize: 13, fontFamily: 'Inter-SemiBold' },
-  progressBg: { height: 6, borderRadius: 3, overflow: 'hidden', marginBottom: 8 },
-  progressFill: { height: 6, borderRadius: 3 },
-  stagesRow: { flexDirection: 'row', justifyContent: 'space-between' },
-  stageLabel: { fontSize: 9, fontFamily: 'Inter-Medium', textTransform: 'capitalize' },
 
   contactRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: '#E2E8F0' },
   contactIcon: { width: 32, height: 32, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
@@ -471,7 +487,7 @@ const styles = StyleSheet.create({
   lostBtnText: { fontSize: 14, fontFamily: 'Inter-SemiBold', color: '#DC2626' },
 
   modalOverlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.45)' },
-  modalSheet: { padding: 20, paddingBottom: 36, borderTopLeftRadius: 24, borderTopRightRadius: 24 },
+  modalSheet: { padding: 20, borderTopLeftRadius: 24, borderTopRightRadius: 24 },
   modalHandle: { width: 40, height: 4, borderRadius: 2, alignSelf: 'center', marginBottom: 18 },
   modalTitle: { fontSize: 18, fontFamily: 'Inter-SemiBold', marginBottom: 16 },
   channelRow: { flexDirection: 'row', gap: 8, marginBottom: 14 },

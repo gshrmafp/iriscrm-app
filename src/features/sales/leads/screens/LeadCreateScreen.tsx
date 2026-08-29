@@ -6,7 +6,6 @@ import {
   Platform,
   TouchableOpacity,
   StyleSheet,
-  TextInput,
   Alert,
 } from 'react-native';
 import { useForm, Controller } from 'react-hook-form';
@@ -15,9 +14,11 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { MapPin, Lock, AlertTriangle, ChevronLeft, CheckCircle } from 'lucide-react-native';
 import { useTheme } from '@/design-system';
 import { Screen } from '@/components/common/Screen';
 import { AppText } from '@/components/common/AppText';
+import { AppInput } from '@/components/forms/AppInput';
 import { leadsApi } from '@/services/api/leads.api';
 import { picklistsApi } from '@/services/api/picklists.api';
 import {
@@ -29,14 +30,6 @@ import {
   LocationCoords,
 } from '@/services/location';
 
-const PRIMARY = '#3B4ECC';
-
-// `source` is required by the backend (validated against active
-// PicklistOption(LEAD_SOURCE) codes) — omitting it makes every submission
-// fail with a 400. `role`/`estimatedValue` were removed: Lead has neither
-// field (a contact's job title isn't stored anywhere, and a deal value only
-// exists on an Opportunity, created later via qualify) — collecting them
-// here just discarded the input silently.
 const schema = z.object({
   contactName: z.string().min(1, 'Full name is required'),
   companyName: z.string().optional(),
@@ -47,17 +40,6 @@ const schema = z.object({
   address: z.string().optional(),
 });
 type FormData = z.infer<typeof schema>;
-
-function FormField({ label, error, children }: { label: string; error?: string; children: React.ReactNode }) {
-  const theme = useTheme();
-  return (
-    <View style={styles.fieldWrap}>
-      <AppText style={styles.fieldLabel} color={theme.colors.text}>{label}</AppText>
-      {children}
-      {error && <AppText style={styles.fieldError}>{error}</AppText>}
-    </View>
-  );
-}
 
 export function LeadCreateScreen() {
   const theme = useTheme();
@@ -112,18 +94,18 @@ export function LeadCreateScreen() {
       await queryClient.invalidateQueries({ queryKey: ['leads'] });
       await queryClient.invalidateQueries({ queryKey: ['lead-dashboard-summary'] });
       if (res.data.duplicateWarning?.length) {
-        Alert.alert('Possible duplicate', `Similar lead(s) already exist: ${res.data.duplicateWarning.join(', ')}`, [
-          { text: 'OK', onPress: () => navigation.goBack() },
-        ]);
+        Alert.alert(
+          'Lead created',
+          `Similar lead(s) already exist: ${res.data.duplicateWarning.join(', ')}`,
+          [{ text: 'Done', onPress: () => navigation.goBack() }],
+        );
       } else {
-        navigation.goBack();
+        Alert.alert('Lead created', '', [{ text: 'Done', onPress: () => navigation.goBack() }]);
       }
     } catch (e: any) {
       Alert.alert('Error', e?.response?.data?.error?.message ?? 'Could not create lead. Please try again.');
     }
   };
-
-  const inputStyle = [styles.input, { backgroundColor: theme.colors.surfaceAlt, color: theme.colors.text, borderColor: theme.colors.border }];
 
   return (
     <Screen edges={['left', 'right', 'bottom']}>
@@ -136,7 +118,7 @@ export function LeadCreateScreen() {
           {/* Header */}
           <View style={styles.pageHeader}>
             <TouchableOpacity onPress={() => navigation.goBack()} style={[styles.backBtn, { backgroundColor: theme.colors.surfaceAlt }]}>
-              <AppText style={{ fontSize: 18, color: theme.colors.text }}>←</AppText>
+              <ChevronLeft size={20} color={theme.colors.text} strokeWidth={2} />
             </TouchableOpacity>
             <View style={{ flex: 1 }}>
               <AppText style={styles.pageTitle} color={theme.colors.text}>New lead</AppText>
@@ -146,44 +128,42 @@ export function LeadCreateScreen() {
 
           {/* Form fields */}
           <View style={styles.form}>
-            <FormField label="Full name" error={errors.contactName?.message}>
-              <Controller control={control} name="contactName" render={({ field: { onChange, onBlur, value } }) => (
-                <TextInput
-                  value={value}
-                  onChangeText={onChange}
-                  onBlur={onBlur}
-                  placeholder="e.g. Anika Patel"
-                  placeholderTextColor={theme.colors.textMuted}
-                  style={inputStyle}
-                  returnKeyType="next"
-                />
-              )} />
-            </FormField>
+            <Controller control={control} name="contactName" render={({ field }) => (
+              <AppInput
+                label="Full name"
+                placeholder="e.g. Anika Patel"
+                value={field.value}
+                onChangeText={field.onChange}
+                onBlur={field.onBlur}
+                error={errors.contactName?.message}
+                autoFocus
+                returnKeyType="next"
+              />
+            )} />
 
-            <FormField label="Company">
-              <Controller control={control} name="companyName" render={({ field: { onChange, onBlur, value } }) => (
-                <TextInput
-                  value={value}
-                  onChangeText={onChange}
-                  onBlur={onBlur}
-                  placeholder="e.g. Northstar Labs"
-                  placeholderTextColor={theme.colors.textMuted}
-                  style={inputStyle}
-                  returnKeyType="next"
-                />
-              )} />
-            </FormField>
+            <Controller control={control} name="companyName" render={({ field }) => (
+              <AppInput
+                label="Company"
+                placeholder="e.g. Northstar Labs"
+                value={field.value}
+                onChangeText={field.onChange}
+                onBlur={field.onBlur}
+                returnKeyType="next"
+              />
+            )} />
 
-            <FormField label="Source" error={errors.source?.message}>
-              <Controller control={control} name="source" render={({ field: { onChange, value } }) => (
+            {/* Source chip selector */}
+            <View style={styles.fieldWrap}>
+              <AppText style={styles.fieldLabel} color={theme.colors.textSecondary}>Source</AppText>
+              <Controller control={control} name="source" render={({ field }) => (
                 <View style={styles.chipRow}>
                   {(sourceOptions ?? []).map(option => {
-                    const active = value === option.code;
+                    const active = field.value === option.code;
                     return (
                       <TouchableOpacity
                         key={option.code}
-                        onPress={() => onChange(option.code)}
-                        style={[styles.sourceChip, { backgroundColor: active ? PRIMARY : theme.colors.surfaceAlt, borderColor: active ? PRIMARY : theme.colors.border }]}
+                        onPress={() => field.onChange(option.code)}
+                        style={[styles.sourceChip, { backgroundColor: active ? theme.colors.primary : theme.colors.surfaceAlt, borderColor: active ? theme.colors.primary : theme.colors.border }]}
                       >
                         <AppText style={{ fontSize: 13, fontFamily: 'Inter-Medium', color: active ? '#FFF' : theme.colors.textSecondary }}>
                           {option.label}
@@ -193,53 +173,79 @@ export function LeadCreateScreen() {
                   })}
                 </View>
               )} />
-            </FormField>
+              {errors.source && <AppText style={styles.fieldError}>{errors.source.message}</AppText>}
+            </View>
 
-            <FormField label="Work email" error={errors.contactEmail?.message}>
-              <Controller control={control} name="contactEmail" render={({ field: { onChange, onBlur, value } }) => (
-                <TextInput
-                  value={value}
-                  onChangeText={onChange}
-                  onBlur={onBlur}
-                  placeholder="name@company.com"
-                  placeholderTextColor={theme.colors.textMuted}
-                  style={inputStyle}
-                  keyboardType="email-address"
-                  autoCapitalize="none"
-                  returnKeyType="next"
-                />
-              )} />
-            </FormField>
+            <Controller control={control} name="contactEmail" render={({ field }) => (
+              <AppInput
+                label="Work email"
+                placeholder="name@company.com"
+                value={field.value}
+                onChangeText={field.onChange}
+                onBlur={field.onBlur}
+                error={errors.contactEmail?.message}
+                keyboardType="email-address"
+                autoCapitalize="none"
+                returnKeyType="next"
+              />
+            )} />
 
-            <FormField label="Phone">
-              <Controller control={control} name="contactPhone" render={({ field: { onChange, onBlur, value } }) => (
-                <TextInput
-                  value={value}
-                  onChangeText={onChange}
-                  onBlur={onBlur}
-                  placeholder="+91 98765 43210"
-                  placeholderTextColor={theme.colors.textMuted}
-                  style={inputStyle}
-                  keyboardType="phone-pad"
-                  returnKeyType="next"
-                />
-              )} />
-            </FormField>
+            <Controller control={control} name="contactPhone" render={({ field }) => (
+              <AppInput
+                label="Phone"
+                placeholder="+91 98765 43210"
+                value={field.value}
+                onChangeText={field.onChange}
+                onBlur={field.onBlur}
+                keyboardType="phone-pad"
+                returnKeyType="next"
+              />
+            )} />
+
+            <Controller control={control} name="address" render={({ field }) => (
+              <AppInput
+                label="Address"
+                placeholder="Street, city"
+                value={field.value}
+                onChangeText={field.onChange}
+                onBlur={field.onBlur}
+                returnKeyType="next"
+              />
+            )} />
+
+            <Controller control={control} name="notes" render={({ field }) => (
+              <AppInput
+                label="Notes"
+                placeholder="Any relevant context…"
+                value={field.value}
+                onChangeText={field.onChange}
+                onBlur={field.onBlur}
+                multiline
+                style={{ minHeight: 80, textAlignVertical: 'top' }}
+              />
+            )} />
 
             {/* GPS status row */}
             {locationStatus !== 'checking' && (
               <View style={[styles.gpsRow, { backgroundColor: theme.colors.surfaceAlt, borderRadius: 10 }]}>
-                <AppText style={{ fontSize: 13, color: locationStatus === 'granted' && coords ? '#059669' : theme.colors.textMuted }}>
-                  {locationStatus === 'granted' && coords
-                    ? `📍 GPS captured`
-                    : locationStatus === 'blocked'
-                    ? '🔒 Location blocked'
-                    : '⚠ Location unavailable — submitting without GPS'}
-                </AppText>
-                {locationStatus === 'blocked' && (
-                  <TouchableOpacity onPress={openLocationSettings}>
-                    <AppText style={{ fontSize: 12, color: PRIMARY, fontFamily: 'Inter-Medium' }}>Open Settings</AppText>
-                  </TouchableOpacity>
+                {locationStatus === 'granted' && coords ? (
+                  <>
+                    <CheckCircle size={14} color="#059669" strokeWidth={2} />
+                    <AppText style={{ fontSize: 13, color: '#059669', flex: 1 }}>GPS captured</AppText>
+                  </>
+                ) : locationStatus === 'blocked' ? (
+                  <>
+                    <Lock size={14} color={theme.colors.textMuted} strokeWidth={2} />
+                    <AppText style={{ fontSize: 13, color: theme.colors.textMuted, flex: 1 }}>Location blocked</AppText>
+                    <TouchableOpacity onPress={openLocationSettings}>
+                      <AppText style={{ fontSize: 12, color: theme.colors.primary, fontFamily: 'Inter-Medium' }}>Open Settings</AppText>
+                    </TouchableOpacity>
+                  </>
+                ) : (
+                  <>
+                    <AlertTriangle size={14} color={theme.colors.textMuted} strokeWidth={2} />
+                    <AppText style={{ fontSize: 13, color: theme.colors.textMuted, flex: 1 }}>Location unavailable — submitting without GPS</AppText>
+                  </>
                 )}
               </View>
             )}
@@ -248,11 +254,11 @@ export function LeadCreateScreen() {
           {/* Submit button */}
           <TouchableOpacity
             onPress={() => { void handleSubmit(onSubmit)(); }}
-            style={[styles.submitBtn, { backgroundColor: PRIMARY, opacity: isSubmitting ? 0.7 : 1 }]}
+            style={[styles.submitBtn, { backgroundColor: theme.colors.primary, opacity: isSubmitting ? 0.7 : 1 }]}
             disabled={isSubmitting}
             activeOpacity={0.85}
           >
-            <AppText style={styles.submitBtnText}>{'✓  Create lead'}</AppText>
+            <AppText style={styles.submitBtnText}>Create lead</AppText>
           </TouchableOpacity>
 
           {/* Cancel link */}
@@ -271,21 +277,13 @@ const styles = StyleSheet.create({
   backBtn: { width: 38, height: 38, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
   pageTitle: { fontSize: 26, fontFamily: 'Inter-Bold', lineHeight: 32 },
   pageSub: { fontSize: 13, fontFamily: 'Inter-Regular', marginTop: 2 },
-  form: { gap: 18 },
-  fieldWrap: { gap: 6 },
-  fieldLabel: { fontSize: 14, fontFamily: 'Inter-SemiBold' },
-  input: {
-    height: 52,
-    borderRadius: 14,
-    paddingHorizontal: 16,
-    fontSize: 15,
-    fontFamily: 'Inter-Regular',
-    borderWidth: 1,
-  },
+  form: { gap: 4 },
+  fieldWrap: { gap: 6, marginBottom: 4 },
+  fieldLabel: { fontSize: 12, fontFamily: 'Inter-SemiBold', marginBottom: 6 },
   fieldError: { fontSize: 12, fontFamily: 'Inter-Regular', color: '#DC2626' },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   sourceChip: { paddingHorizontal: 14, paddingVertical: 9, borderRadius: 20, borderWidth: 1 },
-  gpsRow: { padding: 12, gap: 4 },
+  gpsRow: { padding: 12, flexDirection: 'row', alignItems: 'center', gap: 8 },
   submitBtn: {
     marginTop: 28,
     height: 56,

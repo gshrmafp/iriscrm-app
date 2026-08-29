@@ -1,8 +1,10 @@
 import React from 'react';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { View, StyleSheet, TouchableOpacity, Platform, TextStyle } from 'react-native';
+import { View, StyleSheet, TouchableOpacity } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Home, Users, CheckSquare, Building2, UserCircle } from 'lucide-react-native';
+import Animated, { useSharedValue, useAnimatedStyle, withSequence, withTiming, withSpring } from 'react-native-reanimated';
 import { useTheme } from '@/design-system';
 import { AppText } from '@/components/common/AppText';
 import { SalesStackParamList, SalesTabParamList } from './types';
@@ -21,38 +23,48 @@ import { NotificationsScreen } from '@/features/sales/notifications/screens/Noti
 const Tab = createBottomTabNavigator<SalesTabParamList>();
 const Stack = createNativeStackNavigator<SalesStackParamList>();
 
-type TabItem = { name: keyof SalesTabParamList; label: string; icon: string };
-
-const TABS: TabItem[] = [
-  { name: 'Home',       label: 'Home',       icon: '⌂' },
-  { name: 'Leads',      label: 'Leads',      icon: '⚇' },
-  { name: 'Activities', label: 'Activities', icon: '✓' },
-  { name: 'Customers',  label: 'Customers',  icon: '⊞' },
-  { name: 'Profile',    label: 'Profile',    icon: '◯' },
+const TAB_DEFS: { name: keyof SalesTabParamList; label: string; Icon: React.ComponentType<any> }[] = [
+  { name: 'Home',       label: 'Home',       Icon: Home },
+  { name: 'Leads',      label: 'Leads',      Icon: Users },
+  { name: 'Activities', label: 'Activities', Icon: CheckSquare },
+  { name: 'Customers',  label: 'Customers',  Icon: Building2 },
+  { name: 'Profile',    label: 'Profile',    Icon: UserCircle },
 ];
 
-// Crisp icon set matching the screenshot's outlined icons
-const TAB_ICONS: Record<keyof SalesTabParamList, { active: string; inactive: string }> = {
-  Home:       { active: 'H', inactive: 'H' },
-  Leads:      { active: 'L', inactive: 'L' },
-  Activities: { active: 'A', inactive: 'A' },
-  Customers:  { active: 'C', inactive: 'C' },
-  Profile:    { active: 'P', inactive: 'P' },
-};
+function TabItem({ focused, tab, onPress }: { focused: boolean; tab: typeof TAB_DEFS[0]; onPress: () => void }) {
+  const theme = useTheme();
+  const scale = useSharedValue(1);
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }],
+  }));
 
-// SVG-like unicode chars for each tab
-const ICON_CHARS: Record<keyof SalesTabParamList, string> = {
-  Home:       '⌂',
-  Leads:      '◉',
-  Activities: '☑',
-  Customers:  '▣',
-  Profile:    '⊙',
-};
+  const handlePress = () => {
+    scale.value = withSequence(
+      withTiming(0.82, { duration: 80 }),
+      withSpring(1, { damping: 12, stiffness: 200 }),
+    );
+    onPress();
+  };
+
+  return (
+    <TouchableOpacity activeOpacity={1} onPress={handlePress} style={styles.tabItem}>
+      <Animated.View style={[styles.iconWrap, animatedStyle, focused && { backgroundColor: theme.colors.primary, borderRadius: 12 }]}>
+        <tab.Icon
+          size={20}
+          color={focused ? '#FFFFFF' : theme.colors.textMuted}
+          strokeWidth={focused ? 2.5 : 1.8}
+        />
+      </Animated.View>
+      <AppText style={[styles.tabLabel, { color: focused ? theme.colors.primary : theme.colors.textMuted }]}>
+        {tab.label}
+      </AppText>
+    </TouchableOpacity>
+  );
+}
 
 function SalesTabBar({ state, navigation }: any) {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
-  const PRIMARY = '#3B4ECC';
 
   return (
     <View
@@ -61,20 +73,24 @@ function SalesTabBar({ state, navigation }: any) {
         {
           backgroundColor: theme.colors.surface,
           borderTopColor: theme.colors.border,
-          paddingBottom: insets.bottom > 0 ? insets.bottom : 8,
+          // Some Android devices (e.g. 3-button nav) report a 0 safe-area
+          // inset even though the nav bar is on-screen, so the fallback
+          // needs real breathing room of its own, not just a thin sliver.
+          paddingBottom: insets.bottom > 0 ? insets.bottom : 16,
           ...theme.shadows.md,
         },
       ]}
     >
       {state.routes.map((route: any, index: number) => {
         const focused = state.index === index;
-        const tab = TABS[index];
-        const iconChar = ICON_CHARS[route.name as keyof SalesTabParamList] ?? '●';
+        const tab = TAB_DEFS[index];
+        if (!tab) return null;
 
         return (
-          <TouchableOpacity
+          <TabItem
             key={route.key}
-            activeOpacity={0.75}
+            focused={focused}
+            tab={tab}
             onPress={() => {
               const event = navigation.emit({
                 type: 'tabPress',
@@ -85,35 +101,7 @@ function SalesTabBar({ state, navigation }: any) {
                 navigation.navigate(route.name);
               }
             }}
-            style={styles.tabItem}
-          >
-            <View
-              style={[
-                styles.iconWrap,
-                focused && {
-                  backgroundColor: PRIMARY,
-                  borderRadius: 12,
-                },
-              ]}
-            >
-              <AppText
-                style={{
-                  ...styles.icon,
-                  color: focused ? '#FFFFFF' : theme.colors.textMuted,
-                } as TextStyle}
-              >
-                {iconChar}
-              </AppText>
-            </View>
-            <AppText
-              style={{
-                ...styles.tabLabel,
-                color: focused ? PRIMARY : theme.colors.textMuted,
-              } as TextStyle}
-            >
-              {tab?.label}
-            </AppText>
-          </TouchableOpacity>
+          />
         );
       })}
     </View>
@@ -141,18 +129,19 @@ export function SalesNavigator() {
       screenOptions={{
         headerShown: false,
         animation: 'slide_from_right',
-        animationDuration: 220,
+        animationDuration: 200,
+        animationTypeForReplace: 'push',
       }}
     >
-      <Stack.Screen name="SalesTabs"        component={SalesTabNavigator} />
-      <Stack.Screen name="LeadCreate"       component={LeadCreateScreen}
+      <Stack.Screen name="SalesTabs"         component={SalesTabNavigator} />
+      <Stack.Screen name="LeadCreate"        component={LeadCreateScreen}
         options={{ animation: 'slide_from_bottom', presentation: 'modal' }} />
-      <Stack.Screen name="LeadDetail"       component={LeadDetailScreen} />
+      <Stack.Screen name="LeadDetail"        component={LeadDetailScreen} />
       <Stack.Screen name="OpportunityDetail" component={OpportunityDetailScreen} />
-      <Stack.Screen name="CustomerDetail"   component={CustomerDetailScreen} />
-      <Stack.Screen name="CustomerCreate"   component={CustomerCreateScreen}
+      <Stack.Screen name="CustomerDetail"    component={CustomerDetailScreen} />
+      <Stack.Screen name="CustomerCreate"    component={CustomerCreateScreen}
         options={{ animation: 'slide_from_bottom', presentation: 'modal' }} />
-      <Stack.Screen name="Notifications"    component={NotificationsScreen} />
+      <Stack.Screen name="Notifications"     component={NotificationsScreen} />
     </Stack.Navigator>
   );
 }
@@ -173,10 +162,6 @@ const styles = StyleSheet.create({
     height: 32,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  icon: {
-    fontSize: 18,
-    lineHeight: 22,
   },
   tabLabel: {
     fontSize: 10,
