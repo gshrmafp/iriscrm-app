@@ -11,7 +11,7 @@ export type SalesTabParamList = {
 export type SalesStackParamList = {
   SalesTabs: NavigatorScreenParams<SalesTabParamList> | undefined;
   LeadDetail: { id: string };
-  LeadCreate: undefined;
+  LeadCreate: { resumeLeadId?: string } | undefined;
   OpportunityDetail: { id: string };
   CustomerDetail: { id: string };
   CustomerCreate: undefined;

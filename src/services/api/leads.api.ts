@@ -22,7 +22,7 @@ export interface OpportunitySummary {
 export interface Lead {
   id: string;
   refNo: string;
-  contactName: string;
+  contactName?: string;
   companyName?: string;
   contactPhone?: string;
   contactEmail?: string;
@@ -36,6 +36,13 @@ export interface Lead {
   gpsLongitude?: number;
   visitLocation?: string;
   notes?: string;
+  currentStep?: number;
+  step1CompletedAt?: string;
+  step2CompletedAt?: string;
+  step3CompletedAt?: string;
+  remarks?: string;
+  discussionNote?: string;
+  qualificationPath?: string;
   lostReason?: string;
   createdAt: string;
   updatedAt?: string;
@@ -111,4 +118,25 @@ export const leadsApi = {
 
   qualify: (id: string, body: { dealType: string; value: number; expectedClose?: string }) =>
     apiClient.post(`/leads/${id}/qualify`, body),
+
+  createStepped: (body: {
+    companyName: string;
+    remarks?: string;
+    gpsLatitude?: number;
+    gpsLongitude?: number;
+    visitLocation?: string;
+  }) => apiClient.post<{ lead: Lead }>('/leads/stepped', body),
+
+  saveStep2: (id: string, body: {
+    contactName: string;
+    contactPhone?: string;
+    contactEmail?: string;
+    discussionNote?: string;
+  }) => apiClient.patch<{ lead: Lead; duplicateWarning?: string[] }>(`/leads/${id}/step-2`, body),
+
+  saveStep3: (id: string, body:
+    | { path: 'NOT_QUALIFIED'; remark: string }
+    | { path: 'FUTURE_POTENTIAL'; followUpDate: string; remarks?: string }
+    | { path: 'REQUIREMENT_IDENTIFIED'; dealType: 'INSTALLATION' | 'AMC' | 'MAINTENANCE'; quotationRef: string; quotationDate: string; quotationAmount: number }
+  ) => apiClient.patch<{ lead: Lead; opportunity?: { id: string } }>(`/leads/${id}/step-3`, body),
 };
