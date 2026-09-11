@@ -1,20 +1,31 @@
 import React from 'react';
-import { ScrollView, View, TouchableOpacity, StyleSheet, Alert } from 'react-native';
+import { ScrollView, View, TouchableOpacity, StyleSheet, Alert, Linking } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useQuery } from '@tanstack/react-query';
 import { useTheme, useThemeMode } from '@/design-system';
 import { Screen } from '@/components/common/Screen';
 import { AppText } from '@/components/common/AppText';
 import { useAppSelector, useAppDispatch } from '@/app/store/hooks';
 import { logout } from '@/app/store/slices/authSlice';
 import { clearTokens } from '@/services/storage/secureStorage';
+import { authApi } from '@/services/api/auth.api';
 import { ThemeMode } from '@/design-system/theme';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Sun, Bell, Shield, HelpCircle, LogOut, Edit3 } from 'lucide-react-native';
+import {
+  Sun, Bell, Shield, HelpCircle, LogOut, Edit3, Lock,
+  ChevronRight, Mail, Briefcase, MapPin, Hash, Calendar, Clock,
+} from 'lucide-react-native';
+import { SalesStackParamList } from '@/features/sales/navigation/types';
+
+type Nav = NativeStackNavigationProp<SalesStackParamList>;
 
 const ROLE_LABELS: Record<string, string> = {
   SUPER_ADMIN: 'Super Admin',
   REGIONAL_ADMIN: 'Regional Admin',
   SALES_MANAGER: 'Sales Manager',
-  SALES_EXECUTIVE: 'Sales lead',
+  SALES_EXECUTIVE: 'Sales Executive',
+  AUDITOR: 'Auditor',
 };
 
 const AVATAR_COLORS = ['#3B4ECC', '#7C3AED', '#059669', '#B45309', '#DC2626', '#0891B2'];
@@ -54,7 +65,9 @@ function MenuItem({ Icon, label, subtitle, onPress, danger, right }: {
         <AppText style={styles.menuItemLabel} color={danger ? '#DC2626' : theme.colors.text}>{label}</AppText>
         {subtitle && <AppText style={styles.menuItemSub} color={theme.colors.textMuted}>{subtitle}</AppText>}
       </View>
-      {right ?? <AppText style={styles.chevron} color={theme.colors.textMuted}>›</AppText>}
+      {right ?? (
+        <ChevronRight size={18} color={theme.colors.textMuted} strokeWidth={2} />
+      )}
     </TouchableOpacity>
   );
 }
@@ -73,7 +86,14 @@ export function ProfileScreen() {
   const { themeMode, setThemeMode } = useThemeMode();
   const user = useAppSelector(s => s.auth.user);
   const dispatch = useAppDispatch();
+  const navigation = useNavigation<Nav>();
   const insets = useSafeAreaInsets();
+
+  const { data: profile } = useQuery({
+    queryKey: ['my-profile'],
+    queryFn: () => authApi.getMe().then(r => r.data),
+    staleTime: 60_000,
+  });
 
   const THEME_MODES: ThemeMode[] = ['system', 'light', 'dark'];
 
@@ -91,38 +111,79 @@ export function ProfileScreen() {
     ]);
   };
 
-  const initials = user?.name
-    ? user.name.split(' ').slice(0, 2).map(w => w[0] ?? '').join('').toUpperCase()
-    : 'U';
-  const displayName = user?.name ?? 'User';
-  const roleLabel = ROLE_LABELS[user?.role ?? ''] ?? user?.role ?? 'Sales Rep';
+  const displayName = profile?.name ?? user?.name ?? 'User';
+  const displayEmail = profile?.email ?? user?.email ?? '';
+  const initials = displayName.split(' ').slice(0, 2).map(w => w[0] ?? '').join('').toUpperCase() || 'U';
+  const roleLabel = ROLE_LABELS[profile?.role ?? user?.role ?? ''] ?? user?.role ?? 'Sales Rep';
   const avatarBg = avatarColor(displayName);
+  const employeeId = profile?.id ?? user?.id ?? '';
+  const regionDisplay = profile?.region
+    ? `${profile.region.code} — ${profile.region.name}`
+    : (profile?.regionId ?? user?.regionId ?? '—');
+
+  const formatDate = (iso?: string) => {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+  };
+  const createdAt = formatDate(profile?.createdAt);
+  const updatedAt = formatDate(profile?.updatedAt);
 
   return (
     <Screen edges={['left', 'right']}>
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={[styles.scroll, { paddingTop: insets.top + 8 }]}>
         {/* Header */}
         <View style={[styles.pageHeader, { borderBottomColor: theme.colors.border }]}>
-          <AppText style={[styles.brandLabel, { color: theme.colors.primary }]}>IRIS CRM</AppText>
+          <AppText style={styles.brandLabel} color={theme.colors.primary}>IRIS CRM</AppText>
           <AppText style={styles.pageTitle} color={theme.colors.text}>Profile</AppText>
           <AppText style={styles.pageSubtitle} color={theme.colors.textMuted}>Account and preferences</AppText>
         </View>
 
-        {/* User identity card */}
-        <View style={[styles.identityCard, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
+        {/* User identity card — tappable to edit */}
+        <TouchableOpacity
+          onPress={() => navigation.navigate('EditProfile')}
+          activeOpacity={0.75}
+          style={[styles.identityCard, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}
+        >
           <View style={[styles.userAvatar, { backgroundColor: avatarBg }]}>
             <AppText style={styles.userAvatarText}>{initials}</AppText>
           </View>
           <View style={{ flex: 1 }}>
             <AppText style={styles.userName} color={theme.colors.text}>{displayName}</AppText>
             <AppText style={styles.userRole} color={theme.colors.textMuted}>
-              {roleLabel} · IRIS workspace
+              {roleLabel}
             </AppText>
           </View>
-          <TouchableOpacity style={[styles.editBtn, { backgroundColor: theme.colors.surfaceAlt, borderColor: theme.colors.border }]}>
+          <View style={[styles.editBtn, { backgroundColor: theme.colors.surfaceAlt, borderColor: theme.colors.border }]}>
             <Edit3 size={16} color={theme.colors.textSecondary} strokeWidth={2} />
-          </TouchableOpacity>
-        </View>
+          </View>
+        </TouchableOpacity>
+
+        {/* Account details */}
+        <SectionHeader title="Account" />
+        <MenuCard>
+          {([
+            { Icon: Hash, label: 'Employee ID', value: employeeId },
+            { Icon: Mail, label: 'Email', value: displayEmail },
+            { Icon: Briefcase, label: 'Role', value: roleLabel },
+            { Icon: MapPin, label: 'Region', value: regionDisplay },
+            { Icon: Calendar, label: 'Date Created', value: createdAt },
+            { Icon: Clock, label: 'Last Updated', value: updatedAt },
+          ] as const).map((row, i, arr) => (
+            <View
+              key={row.label}
+              style={[styles.detailRow, i < arr.length - 1 ? { borderBottomColor: theme.colors.border } : { borderBottomWidth: 0 }]}
+            >
+              <View style={[styles.menuItemIcon, { backgroundColor: theme.colors.surfaceAlt }]}>
+                <row.Icon size={16} color={theme.colors.textSecondary} strokeWidth={2} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <AppText style={styles.detailLabel} color={theme.colors.textMuted}>{row.label}</AppText>
+                <AppText style={styles.detailValue} color={theme.colors.text}>{row.value || '—'}</AppText>
+              </View>
+            </View>
+          ))}
+        </MenuCard>
 
         {/* Preferences section */}
         <SectionHeader title="Preferences" />
@@ -157,21 +218,49 @@ export function ProfileScreen() {
               })}
             </View>
           </View>
-          <MenuItem Icon={Bell} label="Notifications" subtitle="Activity reminders are on" />
-          <MenuItem Icon={Shield} label="Privacy & security" subtitle="Manage your workspace access" />
+          <MenuItem
+            Icon={Bell}
+            label="Notifications"
+            subtitle="Manage push notification preferences"
+            onPress={() => navigation.navigate('NotificationSettings')}
+          />
+        </MenuCard>
+
+        {/* Security section */}
+        <SectionHeader title="Security" />
+        <MenuCard>
+          <MenuItem
+            Icon={Lock}
+            label="Change password"
+            subtitle="Update your account password"
+            onPress={() => navigation.navigate('ChangePassword')}
+          />
+          <MenuItem
+            Icon={Shield}
+            label="Privacy & security"
+            subtitle="Manage your workspace access"
+            onPress={() => navigation.navigate('PrivacySecurity')}
+          />
         </MenuCard>
 
         {/* Workspace section */}
         <SectionHeader title="Workspace" />
         <MenuCard>
-          <MenuItem Icon={HelpCircle} label="Help center" subtitle="Get support from the IRIS team" />
+          <MenuItem
+            Icon={HelpCircle}
+            label="Help center"
+            subtitle="Get support from the IRIS team"
+            onPress={() => {
+              Alert.alert('Help Center', 'For support, contact your workspace administrator or email support@iris.local');
+            }}
+          />
           <MenuItem
             Icon={LogOut}
             label="Sign out"
             subtitle="End this session"
             onPress={handleLogout}
             danger
-            right={<AppText style={styles.chevron} color={theme.colors.textMuted}>›</AppText>}
+            right={<ChevronRight size={18} color={theme.colors.textMuted} strokeWidth={2} />}
           />
         </MenuCard>
 
@@ -227,7 +316,17 @@ const styles = StyleSheet.create({
   menuItemIcon: { width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
   menuItemLabel: { fontSize: 15, fontFamily: 'Inter-Medium' },
   menuItemSub: { fontSize: 12, fontFamily: 'Inter-Regular', marginTop: 1 },
-  chevron: { fontSize: 22, lineHeight: 26 },
+
+  detailRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    gap: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  detailLabel: { fontSize: 11, fontFamily: 'Inter-Medium', letterSpacing: 0.3 },
+  detailValue: { fontSize: 15, fontFamily: 'Inter-Regular', marginTop: 1 },
 
   themeToggle: { flexDirection: 'row', gap: 4 },
   themeChip: { paddingHorizontal: 9, paddingVertical: 5, borderRadius: 8 },

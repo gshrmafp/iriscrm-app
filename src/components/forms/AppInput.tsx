@@ -52,6 +52,8 @@ export function AppInput({
             borderRadius: theme.radii.sm,
             backgroundColor: theme.colors.surface,
           },
+          props.multiline && { alignItems: 'flex-start' },
+          props.multiline && props.style && { minHeight: (props.style as any)?.minHeight },
         ]}
       >
         {leftIcon && <View style={styles.iconLeft}>{leftIcon}</View>}
@@ -69,6 +71,7 @@ export function AppInput({
             },
             leftIcon ? styles.inputWithLeft : undefined,
             rightIcon ? styles.inputWithRight : undefined,
+            props.multiline && props.style,
           ]}
         />
         {rightIcon && <View style={styles.iconRight}>{rightIcon}</View>}

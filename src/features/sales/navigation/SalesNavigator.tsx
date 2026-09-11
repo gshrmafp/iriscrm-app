@@ -17,6 +17,10 @@ import { CustomerDetailScreen } from '@/features/sales/customers/screens/Custome
 import { CustomerCreateScreen } from '@/features/sales/customers/screens/CustomerCreateScreen';
 import { ActivitiesScreen } from '@/features/sales/activities/screens/ActivitiesScreen';
 import { ProfileScreen } from '@/features/profile/screens/ProfileScreen';
+import { EditProfileScreen } from '@/features/profile/screens/EditProfileScreen';
+import { NotificationSettingsScreen } from '@/features/profile/screens/NotificationSettingsScreen';
+import { ChangePasswordScreen } from '@/features/profile/screens/ChangePasswordScreen';
+import { PrivacySecurityScreen } from '@/features/profile/screens/PrivacySecurityScreen';
 import { OpportunityDetailScreen } from '@/features/sales/opportunities/screens/OpportunityDetailScreen';
 import { NotificationsScreen } from '@/features/sales/notifications/screens/NotificationsScreen';
 
@@ -142,6 +146,10 @@ export function SalesNavigator() {
       <Stack.Screen name="CustomerCreate"    component={CustomerCreateScreen}
         options={{ animation: 'slide_from_bottom', presentation: 'modal' }} />
       <Stack.Screen name="Notifications"     component={NotificationsScreen} />
+      <Stack.Screen name="EditProfile"       component={EditProfileScreen} />
+      <Stack.Screen name="NotificationSettings" component={NotificationSettingsScreen} />
+      <Stack.Screen name="ChangePassword"    component={ChangePasswordScreen} />
+      <Stack.Screen name="PrivacySecurity"   component={PrivacySecurityScreen} />
     </Stack.Navigator>
   );
 }

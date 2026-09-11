@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   FlatList,
@@ -9,7 +9,7 @@ import {
   ScrollView,
   TextStyle,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useInfiniteQuery } from '@tanstack/react-query';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -20,7 +20,7 @@ import { AppText } from '@/components/common/AppText';
 import { NotificationBell } from '@/components/common/NotificationBell';
 import { SkeletonLeadCard, EmptyState } from '@/components/feedback';
 import { useDebounceSearch } from '@/hooks/useDebounceSearch';
-import { SalesStackParamList } from '@/features/sales/navigation/types';
+import { SalesStackParamList, SalesTabParamList } from '@/features/sales/navigation/types';
 import { leadsApi, Lead } from '@/services/api/leads.api';
 
 type Nav = NativeStackNavigationProp<SalesStackParamList>;
@@ -225,9 +225,21 @@ function LeadCard({ item, onPress }: { item: Lead; onPress: () => void }) {
 export function LeadsScreen() {
   const theme = useTheme();
   const navigation = useNavigation<Nav>();
+  const route = useRoute<RouteProp<SalesTabParamList, 'Leads'>>();
   const insets = useSafeAreaInsets();
   const { value: search, debouncedValue: debouncedSearch, onChange: handleSearch } = useDebounceSearch();
-  const [activeFilter, setActiveFilter] = useState<FilterTab>(FILTER_TABS[0]);
+
+  const initialFilter = route.params?.filter
+    ? FILTER_TABS.find(f => f.key === route.params!.filter) ?? FILTER_TABS[0]
+    : FILTER_TABS[0];
+  const [activeFilter, setActiveFilter] = useState<FilterTab>(initialFilter);
+
+  useEffect(() => {
+    if (route.params?.filter) {
+      const matched = FILTER_TABS.find(f => f.key === route.params!.filter);
+      if (matched) setActiveFilter(matched);
+    }
+  }, [route.params?.filter]);
 
   const { data, fetchNextPage, hasNextPage, isFetchingNextPage, isLoading, isError, refetch } =
     useInfiniteQuery({

@@ -8,7 +8,9 @@ import {
   StyleSheet,
   Alert,
   ActivityIndicator,
+  Modal,
 } from 'react-native';
+import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import { useForm, Controller } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -50,11 +52,18 @@ const step1Schema = z.object({
 });
 type Step1Data = z.infer<typeof step1Schema>;
 
+const PHONE_REGEX = /^[+]?[\d\s\-()]{7,15}$/;
+
 const step2Schema = z.object({
   contactName: z.string().min(1, 'Customer name is required'),
-  contactPhone: z.string().optional(),
-  contactEmail: z.string().email('Invalid email').optional().or(z.literal('')),
-  discussionNote: z.string().optional(),
+  contactPhone: z.string()
+    .optional()
+    .refine(val => !val || PHONE_REGEX.test(val), { message: 'Enter a valid phone number' }),
+  contactEmail: z.string()
+    .optional()
+    .refine(val => !val || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val), { message: 'Enter a valid email address' })
+    .or(z.literal('')),
+  discussionNote: z.string().max(1000, 'Max 1000 characters').optional(),
 }).refine(d => (d.contactPhone && d.contactPhone.length > 0) || (d.contactEmail && d.contactEmail.length > 0), {
   message: 'Phone or email is required',
   path: ['contactPhone'],
@@ -146,10 +155,12 @@ export function LeadCreateScreen() {
 
   // Step 3 form fields (manual state since the branching is complex)
   const [notQualRemark, setNotQualRemark] = useState('');
-  const [followUpDate, setFollowUpDate] = useState('');
+  const [followUpDate, setFollowUpDate] = useState<Date | null>(null);
+  const [showFollowUpPicker, setShowFollowUpPicker] = useState(false);
   const [followUpRemarks, setFollowUpRemarks] = useState('');
   const [quotationRef, setQuotationRef] = useState('');
-  const [quotationDate, setQuotationDate] = useState('');
+  const [quotationDate, setQuotationDate] = useState<Date | null>(null);
+  const [showQuotationPicker, setShowQuotationPicker] = useState(false);
   const [quotationAmount, setQuotationAmount] = useState('');
 
   // Resume: fetch existing lead
@@ -282,14 +293,14 @@ export function LeadCreateScreen() {
         }
         body = { path: 'NOT_QUALIFIED', remark: notQualRemark.trim() };
       } else if (qualSubPath === 'FUTURE_POTENTIAL') {
-        if (!followUpDate.trim()) {
+        if (!followUpDate) {
           Alert.alert('Required', 'Please select a follow-up date.');
           setStep3Submitting(false);
           return;
         }
-        body = { path: 'FUTURE_POTENTIAL', followUpDate: followUpDate.trim(), remarks: followUpRemarks || undefined };
+        body = { path: 'FUTURE_POTENTIAL', followUpDate: followUpDate.toISOString().split('T')[0], remarks: followUpRemarks || undefined };
       } else if (qualSubPath === 'REQUIREMENT_IDENTIFIED' && dealType) {
-        if (!quotationRef.trim() || !quotationDate.trim() || !quotationAmount.trim()) {
+        if (!quotationRef.trim() || !quotationDate || !quotationAmount.trim()) {
           Alert.alert('Required', 'Please fill all quotation fields.');
           setStep3Submitting(false);
           return;
@@ -298,7 +309,7 @@ export function LeadCreateScreen() {
           path: 'REQUIREMENT_IDENTIFIED',
           dealType,
           quotationRef: quotationRef.trim(),
-          quotationDate: quotationDate.trim(),
+          quotationDate: quotationDate.toISOString().split('T')[0],
           quotationAmount: parseFloat(quotationAmount),
         };
       } else {
@@ -415,7 +426,7 @@ export function LeadCreateScreen() {
                   onChangeText={field.onChange}
                   onBlur={field.onBlur}
                   multiline
-                  style={{ minHeight: 80, textAlignVertical: 'top' }}
+                  style={{ minHeight: 120, textAlignVertical: 'top' }}
                 />
               )} />
 
@@ -483,10 +494,11 @@ export function LeadCreateScreen() {
                   label="Contact Number"
                   placeholder="+91 98765 43210"
                   value={field.value}
-                  onChangeText={field.onChange}
+                  onChangeText={(text: string) => field.onChange(text.replace(/[^0-9+\-\s()]/g, ''))}
                   onBlur={field.onBlur}
                   error={step2Form.formState.errors.contactPhone?.message}
                   keyboardType="phone-pad"
+                  maxLength={15}
                   returnKeyType="next"
                 />
               )} />
@@ -512,8 +524,10 @@ export function LeadCreateScreen() {
                   value={field.value}
                   onChangeText={field.onChange}
                   onBlur={field.onBlur}
+                  error={step2Form.formState.errors.discussionNote?.message}
                   multiline
-                  style={{ minHeight: 80, textAlignVertical: 'top' }}
+                  maxLength={1000}
+                  style={{ minHeight: 120, textAlignVertical: 'top' }}
                 />
               )} />
 
@@ -570,7 +584,7 @@ export function LeadCreateScreen() {
                     value={notQualRemark}
                     onChangeText={setNotQualRemark}
                     multiline
-                    style={{ minHeight: 80, textAlignVertical: 'top' }}
+                    style={{ minHeight: 120, textAlignVertical: 'top' }}
                   />
                   <TouchableOpacity
                     onPress={onSaveStep3}
@@ -620,20 +634,59 @@ export function LeadCreateScreen() {
                     <ChevronLeft size={16} color={theme.colors.primary} />
                     <AppText style={{ fontSize: 13, color: theme.colors.primary, fontFamily: 'Inter-Medium' }}>Back</AppText>
                   </TouchableOpacity>
-                  <AppInput
-                    label="Follow-up Date"
-                    placeholder="YYYY-MM-DD"
-                    value={followUpDate}
-                    onChangeText={setFollowUpDate}
-                    returnKeyType="next"
-                  />
+                  <View style={{ marginBottom: 4 }}>
+                    <AppText variant="labelSm" color={theme.colors.textSecondary} style={{ marginBottom: 6 }}>Follow-up Date</AppText>
+                    <TouchableOpacity
+                      onPress={() => setShowFollowUpPicker(true)}
+                      style={[s.dateField, { borderColor: theme.colors.border, borderRadius: theme.radii.sm, backgroundColor: theme.colors.surface }]}
+                      activeOpacity={0.7}
+                    >
+                      <Calendar size={18} color={theme.colors.primary} strokeWidth={2} />
+                      <AppText style={{ fontSize: 14, fontFamily: 'Inter-Regular' }} color={followUpDate ? theme.colors.text : theme.colors.textMuted}>
+                        {followUpDate ? followUpDate.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : 'Select date'}
+                      </AppText>
+                    </TouchableOpacity>
+                    {showFollowUpPicker && (
+                      Platform.OS === 'ios' ? (
+                        <Modal transparent animationType="slide">
+                          <View style={s.pickerOverlay}>
+                            <View style={[s.pickerSheet, { backgroundColor: theme.colors.surface }]}>
+                              <View style={s.pickerHeader}>
+                                <TouchableOpacity onPress={() => setShowFollowUpPicker(false)}>
+                                  <AppText style={{ fontSize: 15, fontFamily: 'Inter-Medium' }} color={theme.colors.textMuted}>Cancel</AppText>
+                                </TouchableOpacity>
+                                <TouchableOpacity onPress={() => setShowFollowUpPicker(false)}>
+                                  <AppText style={{ fontSize: 15, fontFamily: 'Inter-SemiBold' }} color={theme.colors.primary}>Done</AppText>
+                                </TouchableOpacity>
+                              </View>
+                              <DateTimePicker
+                                value={followUpDate ?? new Date()}
+                                mode="date"
+                                display="spinner"
+                                minimumDate={new Date()}
+                                onChange={(_: DateTimePickerEvent, date?: Date) => { if (date) setFollowUpDate(date); }}
+                              />
+                            </View>
+                          </View>
+                        </Modal>
+                      ) : (
+                        <DateTimePicker
+                          value={followUpDate ?? new Date()}
+                          mode="date"
+                          display="default"
+                          minimumDate={new Date()}
+                          onChange={(_: DateTimePickerEvent, date?: Date) => { setShowFollowUpPicker(false); if (date) setFollowUpDate(date); }}
+                        />
+                      )
+                    )}
+                  </View>
                   <AppInput
                     label="Remarks"
                     placeholder="Notes for follow-up…"
                     value={followUpRemarks}
                     onChangeText={setFollowUpRemarks}
                     multiline
-                    style={{ minHeight: 80, textAlignVertical: 'top' }}
+                    style={{ minHeight: 120, textAlignVertical: 'top' }}
                   />
                   <TouchableOpacity
                     onPress={onSaveStep3}
@@ -694,13 +747,50 @@ export function LeadCreateScreen() {
                     onChangeText={setQuotationRef}
                     returnKeyType="next"
                   />
-                  <AppInput
-                    label="Quotation Date"
-                    placeholder="YYYY-MM-DD"
-                    value={quotationDate}
-                    onChangeText={setQuotationDate}
-                    returnKeyType="next"
-                  />
+                  <View style={{ marginBottom: 4 }}>
+                    <AppText variant="labelSm" color={theme.colors.textSecondary} style={{ marginBottom: 6 }}>Quotation Date</AppText>
+                    <TouchableOpacity
+                      onPress={() => setShowQuotationPicker(true)}
+                      style={[s.dateField, { borderColor: theme.colors.border, borderRadius: theme.radii.sm, backgroundColor: theme.colors.surface }]}
+                      activeOpacity={0.7}
+                    >
+                      <Calendar size={18} color={theme.colors.primary} strokeWidth={2} />
+                      <AppText style={{ fontSize: 14, fontFamily: 'Inter-Regular' }} color={quotationDate ? theme.colors.text : theme.colors.textMuted}>
+                        {quotationDate ? quotationDate.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : 'Select date'}
+                      </AppText>
+                    </TouchableOpacity>
+                    {showQuotationPicker && (
+                      Platform.OS === 'ios' ? (
+                        <Modal transparent animationType="slide">
+                          <View style={s.pickerOverlay}>
+                            <View style={[s.pickerSheet, { backgroundColor: theme.colors.surface }]}>
+                              <View style={s.pickerHeader}>
+                                <TouchableOpacity onPress={() => setShowQuotationPicker(false)}>
+                                  <AppText style={{ fontSize: 15, fontFamily: 'Inter-Medium' }} color={theme.colors.textMuted}>Cancel</AppText>
+                                </TouchableOpacity>
+                                <TouchableOpacity onPress={() => setShowQuotationPicker(false)}>
+                                  <AppText style={{ fontSize: 15, fontFamily: 'Inter-SemiBold' }} color={theme.colors.primary}>Done</AppText>
+                                </TouchableOpacity>
+                              </View>
+                              <DateTimePicker
+                                value={quotationDate ?? new Date()}
+                                mode="date"
+                                display="spinner"
+                                onChange={(_: DateTimePickerEvent, date?: Date) => { if (date) setQuotationDate(date); }}
+                              />
+                            </View>
+                          </View>
+                        </Modal>
+                      ) : (
+                        <DateTimePicker
+                          value={quotationDate ?? new Date()}
+                          mode="date"
+                          display="default"
+                          onChange={(_: DateTimePickerEvent, date?: Date) => { setShowQuotationPicker(false); if (date) setQuotationDate(date); }}
+                        />
+                      )
+                    )}
+                  </View>
                   <AppInput
                     label="Amount (₹)"
                     placeholder="e.g. 150000"
@@ -773,4 +863,20 @@ const s = StyleSheet.create({
   submitBtnText: { fontSize: 16, fontFamily: 'Inter-SemiBold', color: '#FFF' },
   cancelLink: { marginTop: 14, alignItems: 'center', paddingVertical: 8 },
   cancelText: { fontSize: 15, fontFamily: 'Inter-Medium' },
+  dateField: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    borderWidth: 1.5, minHeight: 48, paddingHorizontal: 14,
+  },
+  pickerOverlay: {
+    flex: 1, justifyContent: 'flex-end',
+    backgroundColor: 'rgba(0,0,0,0.4)',
+  },
+  pickerSheet: {
+    borderTopLeftRadius: 20, borderTopRightRadius: 20,
+    paddingBottom: 24,
+  },
+  pickerHeader: {
+    flexDirection: 'row', justifyContent: 'space-between',
+    paddingHorizontal: 20, paddingVertical: 14,
+  },
 });

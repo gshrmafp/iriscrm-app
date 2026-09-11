@@ -10,6 +10,7 @@ import { ProfileScreen } from '@/features/profile/screens/ProfileScreen';
 import { useAppSelector, useAppDispatch } from '@/app/store/hooks';
 import { logout } from '@/app/store/slices/authSlice';
 import { clearTokens } from '@/services/storage/secureStorage';
+import { usePostLoginPermissions } from '@/hooks/usePostLoginPermissions';
 import { DARK_NAVY } from '@/constants/brandColors';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -180,6 +181,8 @@ function CustomDrawerContent(props: DrawerContentComponentProps) {
 }
 
 export function AppDrawerNavigator() {
+  usePostLoginPermissions();
+
   return (
     <Drawer.Navigator
       drawerContent={props => <CustomDrawerContent {...props} />}
