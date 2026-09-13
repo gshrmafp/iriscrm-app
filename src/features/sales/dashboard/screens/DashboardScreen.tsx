@@ -43,9 +43,7 @@ function fmtDate() {
 
 function formatPipeline(val?: number) {
   if (!val) return '—';
-  if (val >= 10_00_000) return `₹${(val / 10_00_000).toFixed(1)}M`;
-  if (val >= 1_00_000) return `₹${(val / 1_00_000).toFixed(1)}L`;
-  return `₹${(val / 1000).toFixed(0)}k`;
+  return `₹${val.toLocaleString('en-IN')}`;
 }
 
 function isWithinNextWeek(dateStr?: string | null): boolean {
@@ -455,7 +453,7 @@ const st = StyleSheet.create({
   },
   miniStatValue: { fontSize: 20, fontFamily: 'Inter-Bold', lineHeight: 24, marginTop: 4 },
   miniStatLabel: { fontSize: 10, fontFamily: 'Inter-Medium' },
-  miniStatValueDark: { fontSize: 20, fontFamily: 'Inter-Bold', color: '#FFF', lineHeight: 24, marginTop: 4 },
+  miniStatValueDark: { fontSize: 14, fontFamily: 'Inter-Bold', color: '#FFF', lineHeight: 18, marginTop: 4 },
   miniStatLabelDark: { fontSize: 10, fontFamily: 'Inter-Medium', color: 'rgba(255,255,255,0.6)' },
 
   section: { marginTop: 16, paddingHorizontal: 12 },

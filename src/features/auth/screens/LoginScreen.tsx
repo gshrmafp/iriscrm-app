@@ -6,6 +6,7 @@ import {
   Platform,
   TouchableOpacity,
   StyleSheet,
+  Image,
 } from 'react-native';
 import { useForm, Controller } from 'react-hook-form';
 import { z } from 'zod';
@@ -20,6 +21,8 @@ import { setSession, AuthUser } from '@/app/store/slices/authSlice';
 import { storeTokens } from '@/services/storage/secureStorage';
 import { setPreference } from '@/services/storage/preferences';
 import { apiClient } from '@/services/api/client';
+
+const LOGO = require('@/assets/images/iris_logo.png');
 
 const schema = z.object({
   email: z.string().min(1, 'Email is required').email('Invalid email'),
@@ -87,11 +90,8 @@ export function LoginScreen() {
       >
         {/* Brand */}
         <View style={styles.brand}>
-          <View style={[styles.logoBox, { backgroundColor: theme.colors.primary, borderRadius: theme.radii.xl }]}>
-            <AppText variant="h1" color="#FFFFFF">I</AppText>
-          </View>
-          <AppText variant="h1" color={theme.colors.text} style={styles.appName}>IRIS</AppText>
-          <AppText variant="bodyMd" color={theme.colors.textSecondary}>Sign in to your account</AppText>
+          <Image source={LOGO} style={styles.logoImage} resizeMode="contain" />
+          <AppText variant="bodyMd" color={theme.colors.textSecondary} style={styles.signInLabel}>Sign in to your account</AppText>
         </View>
 
         {/* Form Card */}
@@ -155,8 +155,8 @@ export function LoginScreen() {
 const styles = StyleSheet.create({
   scroll: { flexGrow: 1, paddingHorizontal: 24 },
   brand: { alignItems: 'center', marginBottom: 32 },
-  logoBox: { width: 72, height: 72, alignItems: 'center', justifyContent: 'center', marginBottom: 12 },
-  appName: { marginBottom: 4 },
+  logoImage: { width: 120, height: 120, borderRadius: 28 },
+  signInLabel: { marginTop: 12 },
   card: { borderWidth: 1, padding: 24, marginBottom: 24 },
   field: { marginBottom: 16 },
   errorBox: { padding: 12, marginBottom: 16 },

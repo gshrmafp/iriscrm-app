@@ -1,9 +1,10 @@
 import React, { useEffect, useRef } from 'react';
-import { View, StyleSheet, Animated, Easing, Dimensions } from 'react-native';
+import { View, StyleSheet, Animated, Easing, Dimensions, Image } from 'react-native';
 import Svg, { Defs, LinearGradient, Stop, Rect } from 'react-native-svg';
 import { AppText } from '@/components/common/AppText';
 
 const { width: W, height: H } = Dimensions.get('window');
+const LOGO = require('@/assets/images/iris_logo.png');
 
 function AnimatedRing({ delay, size, dur }: { delay: number; size: number; dur: number }) {
   const scale = useRef(new Animated.Value(0)).current;
@@ -97,18 +98,12 @@ export function SplashScreen() {
 
       {/* Logo */}
       <Animated.View style={[st.logoWrap, { opacity: logoOpacity, transform: [{ scale: logoScale }] }]}>
-        <View style={st.logoBox}>
-          <AppText style={st.logoLetter}>I</AppText>
-        </View>
+        <Image source={LOGO} style={st.logoImage} resizeMode="contain" />
       </Animated.View>
 
-      {/* Text */}
-      <Animated.View style={[st.textWrap, { opacity: textOpacity }]}>
-        <AppText style={st.appName}>IRIS</AppText>
-      </Animated.View>
-
+      {/* Tagline */}
       <Animated.View style={{ opacity: tagOpacity }}>
-        <AppText style={st.tagline}>CRM Platform</AppText>
+        <AppText style={st.tagline}>Safer Tomorrow Together</AppText>
       </Animated.View>
 
       {/* Loading bar */}
@@ -132,29 +127,17 @@ const st = StyleSheet.create({
 
   logoWrap: { alignItems: 'center', zIndex: 10 },
 
-  logoBox: {
-    width: 80, height: 80, borderRadius: 24,
-    backgroundColor: '#6366F1',
-    alignItems: 'center', justifyContent: 'center',
-    shadowColor: '#6366F1', shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.4, shadowRadius: 20, elevation: 16,
-  },
-
-  logoLetter: {
-    fontSize: 38, fontFamily: 'Inter-Bold', color: '#FFF', letterSpacing: 1,
+  logoImage: {
+    width: 160, height: 160, borderRadius: 32,
   },
 
   textWrap: { marginTop: 20 },
 
-  appName: {
-    fontSize: 28, fontFamily: 'Inter-Bold', color: '#FFF',
-    letterSpacing: 10, textAlign: 'center',
-  },
-
   tagline: {
     fontSize: 12, fontFamily: 'Inter-Medium',
-    color: 'rgba(255,255,255,0.4)', letterSpacing: 3,
-    textAlign: 'center', marginTop: 8,
+    color: 'rgba(255,255,255,0.5)', letterSpacing: 3,
+    textAlign: 'center', marginTop: 16,
+    textTransform: 'uppercase',
   },
 
   bottomWrap: {

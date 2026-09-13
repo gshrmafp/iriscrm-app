@@ -4,7 +4,6 @@ export type SalesTabParamList = {
   Home: undefined;
   Leads: { filter?: string } | undefined;
   Activities: undefined;
-  Customers: undefined;
   Profile: undefined;
 };
 

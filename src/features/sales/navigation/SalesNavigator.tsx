@@ -3,7 +3,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { View, StyleSheet, TouchableOpacity } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Home, Users, CheckSquare, Building2, UserCircle } from 'lucide-react-native';
+import { Home, Users, CheckSquare, UserCircle } from 'lucide-react-native';
 import Animated, { useSharedValue, useAnimatedStyle, withSequence, withTiming, withSpring } from 'react-native-reanimated';
 import { useTheme } from '@/design-system';
 import { AppText } from '@/components/common/AppText';
@@ -12,7 +12,7 @@ import { DashboardScreen } from '@/features/sales/dashboard/screens/DashboardScr
 import { LeadsScreen } from '@/features/sales/leads/screens/LeadsScreen';
 import { LeadDetailScreen } from '@/features/sales/leads/screens/LeadDetailScreen';
 import { LeadCreateScreen } from '@/features/sales/leads/screens/LeadCreateScreen';
-import { CustomersScreen } from '@/features/sales/customers/screens/CustomersScreen';
+
 import { CustomerDetailScreen } from '@/features/sales/customers/screens/CustomerDetailScreen';
 import { CustomerCreateScreen } from '@/features/sales/customers/screens/CustomerCreateScreen';
 import { ActivitiesScreen } from '@/features/sales/activities/screens/ActivitiesScreen';
@@ -31,7 +31,6 @@ const TAB_DEFS: { name: keyof SalesTabParamList; label: string; Icon: React.Comp
   { name: 'Home',       label: 'Home',       Icon: Home },
   { name: 'Leads',      label: 'Leads',      Icon: Users },
   { name: 'Activities', label: 'Activities', Icon: CheckSquare },
-  { name: 'Customers',  label: 'Customers',  Icon: Building2 },
   { name: 'Profile',    label: 'Profile',    Icon: UserCircle },
 ];
 
@@ -121,7 +120,6 @@ function SalesTabNavigator() {
       <Tab.Screen name="Home"       component={DashboardScreen} />
       <Tab.Screen name="Leads"      component={LeadsScreen} />
       <Tab.Screen name="Activities" component={ActivitiesScreen} />
-      <Tab.Screen name="Customers"  component={CustomersScreen} />
       <Tab.Screen name="Profile"    component={ProfileScreen} />
     </Tab.Navigator>
   );
