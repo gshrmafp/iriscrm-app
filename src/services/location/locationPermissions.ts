@@ -9,6 +9,7 @@ const LOCATION_PERMISSION = Platform.select({
 
 export async function checkLocationPermission(): Promise<LocationPermissionStatus> {
   const result = await check(LOCATION_PERMISSION);
+  console.log(`[LOCATION] checkPermission: raw=${result}`);
   switch (result) {
     case RESULTS.GRANTED: return 'granted';
     case RESULTS.DENIED: return 'denied';
@@ -18,7 +19,9 @@ export async function checkLocationPermission(): Promise<LocationPermissionStatu
 }
 
 export async function requestLocationPermission(): Promise<LocationPermissionStatus> {
+  console.log('[LOCATION] requestPermission called');
   const result = await request(LOCATION_PERMISSION);
+  console.log(`[LOCATION] requestPermission: raw=${result}`);
   switch (result) {
     case RESULTS.GRANTED: return 'granted';
     case RESULTS.DENIED: return 'denied';

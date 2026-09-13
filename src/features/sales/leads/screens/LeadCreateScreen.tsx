@@ -9,6 +9,7 @@ import {
   Alert,
   ActivityIndicator,
   Modal,
+  AppState,
 } from 'react-native';
 import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import { useForm, Controller } from 'react-hook-form';
@@ -32,12 +33,14 @@ import { Screen } from '@/components/common/Screen';
 import { AppText } from '@/components/common/AppText';
 import { AppInput } from '@/components/forms/AppInput';
 import { leadsApi } from '@/services/api/leads.api';
+import { apiClient } from '@/services/api/client';
 import type { SalesStackParamList } from '@/features/sales/navigation/types';
 import {
   checkLocationPermission,
   requestLocationPermission,
   getCurrentLocation,
   openLocationSettings,
+  promptEnableLocationServices,
   type LocationPermissionStatus,
   type LocationCoords,
 } from '@/services/location';
@@ -191,38 +194,95 @@ export function LeadCreateScreen() {
   }, [resumeLead]);
 
   // GPS capture
-  useEffect(() => {
-    (async () => {
-      const status = await checkLocationPermission();
-      if (status === 'granted') {
-        setLocationStatus('granted');
-        try {
-          const loc = await getCurrentLocation(10000);
-          setCoords(loc);
-        } catch { setLocationStatus('unavailable'); }
-      } else if (status === 'denied') {
-        const req = await requestLocationPermission();
-        setLocationStatus(req);
-        if (req === 'granted') {
-          try {
-            const loc = await getCurrentLocation(10000);
-            setCoords(loc);
-          } catch { setLocationStatus('unavailable'); }
-        }
-      } else {
-        setLocationStatus(status);
+  const [locationLoading, setLocationLoading] = useState(false);
+
+  const acquireLocation = useCallback(async () => {
+    console.log('[LOCATION] acquireLocation called');
+    setLocationLoading(true);
+    try {
+      let status = await checkLocationPermission();
+      console.log(`[LOCATION] permission status: ${status}`);
+      if (status === 'denied') {
+        status = await requestLocationPermission();
+        console.log(`[LOCATION] after request: ${status}`);
       }
-    })();
+      setLocationStatus(status);
+
+      if (status === 'blocked') {
+        Alert.alert(
+          'Location Required',
+          'Location access is blocked. Please enable it in your device settings to create a lead.',
+          [
+            { text: 'Open Settings', onPress: () => openLocationSettings() },
+            { text: 'Cancel', style: 'cancel' },
+          ],
+        );
+        setLocationLoading(false);
+        return;
+      }
+
+      if (status !== 'granted') {
+        Alert.alert(
+          'Location Required',
+          'Location permission is required to create a new lead. Please grant location access.',
+          [{ text: 'Try Again', onPress: () => acquireLocation() }, { text: 'Cancel', style: 'cancel' }],
+        );
+        setLocationLoading(false);
+        return;
+      }
+
+      const loc = await getCurrentLocation(15000);
+      setCoords(loc);
+      setLocationStatus('granted');
+    } catch (err: any) {
+      setLocationStatus('unavailable');
+      const errCode = err?.code;
+      if (errCode === 2) {
+        // POSITION_UNAVAILABLE — device GPS is likely OFF
+        promptEnableLocationServices();
+      } else if (errCode === 1) {
+        // PERMISSION_DENIED at OS level
+        Alert.alert(
+          'Location Permission Denied',
+          'Please allow location access in your device settings.',
+          [{ text: 'Open Settings', onPress: () => openLocationSettings() }, { text: 'Cancel', style: 'cancel' }],
+        );
+      } else {
+        // TIMEOUT or unknown
+        Alert.alert(
+          'Location Error',
+          'Could not get your location. Please make sure GPS is turned on in your device settings and try again.',
+          [
+            { text: 'Open GPS Settings', onPress: () => promptEnableLocationServices() },
+            { text: 'Retry', onPress: () => acquireLocation() },
+            { text: 'Cancel', style: 'cancel' },
+          ],
+        );
+      }
+    } finally {
+      setLocationLoading(false);
+    }
   }, []);
 
-  // Reverse geocode
+  useEffect(() => {
+    acquireLocation();
+  }, [acquireLocation]);
+
+  // Re-check location when user returns from Settings
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', state => {
+      if (state === 'active' && !coords && !locationLoading) {
+        acquireLocation();
+      }
+    });
+    return () => sub.remove();
+  }, [coords, locationLoading, acquireLocation]);
+
+  // Reverse geocode via backend API
   useEffect(() => {
     if (!coords) return;
-    fetch(`https://nominatim.openstreetmap.org/reverse?lat=${coords.latitude}&lon=${coords.longitude}&format=json`, {
-      headers: { 'User-Agent': 'IRIS-CRM-Mobile/1.0' },
-    })
-      .then(r => r.json())
-      .then(data => { if (data.display_name) setVisitLocation(data.display_name); })
+    apiClient.get('/geo/reverse-geocode', { params: { lat: coords.latitude, lng: coords.longitude } })
+      .then((res: any) => { if (res.address) setVisitLocation(res.address); })
       .catch(() => {});
   }, [coords]);
 
@@ -431,43 +491,61 @@ export function LeadCreateScreen() {
               )} />
 
               {/* GPS status */}
-              {locationStatus !== 'checking' && (
-                <View style={[s.gpsRow, { backgroundColor: theme.colors.surfaceAlt, borderRadius: 10 }]}>
-                  {locationStatus === 'granted' && coords ? (
-                    <>
-                      <CheckCircle size={14} color="#059669" strokeWidth={2} />
-                      <View style={{ flex: 1 }}>
-                        <AppText style={{ fontSize: 13, color: '#059669' }}>GPS captured</AppText>
-                        {visitLocation && (
-                          <AppText style={{ fontSize: 11, color: theme.colors.textMuted, marginTop: 2 }} numberOfLines={2}>{visitLocation}</AppText>
-                        )}
-                      </View>
-                    </>
-                  ) : locationStatus === 'blocked' ? (
-                    <>
-                      <Lock size={14} color={theme.colors.textMuted} strokeWidth={2} />
-                      <AppText style={{ fontSize: 13, color: theme.colors.textMuted, flex: 1 }}>Location blocked</AppText>
-                      <TouchableOpacity onPress={openLocationSettings}>
-                        <AppText style={{ fontSize: 12, color: theme.colors.primary, fontFamily: 'Inter-Medium' }}>Open Settings</AppText>
-                      </TouchableOpacity>
-                    </>
-                  ) : (
-                    <>
-                      <AlertTriangle size={14} color={theme.colors.textMuted} strokeWidth={2} />
-                      <AppText style={{ fontSize: 13, color: theme.colors.textMuted, flex: 1 }}>Location unavailable</AppText>
-                    </>
-                  )}
-                </View>
-              )}
+              <View style={[s.gpsRow, { backgroundColor: theme.colors.surfaceAlt, borderRadius: 10 }]}>
+                {locationLoading ? (
+                  <>
+                    <ActivityIndicator size="small" color={theme.colors.primary} />
+                    <AppText style={{ fontSize: 13, color: theme.colors.textMuted, flex: 1 }}>Acquiring location…</AppText>
+                  </>
+                ) : locationStatus === 'granted' && coords ? (
+                  <>
+                    <CheckCircle size={14} color="#059669" strokeWidth={2} />
+                    <View style={{ flex: 1 }}>
+                      <AppText style={{ fontSize: 13, color: '#059669' }}>GPS captured</AppText>
+                      {visitLocation && (
+                        <AppText style={{ fontSize: 11, color: theme.colors.textMuted, marginTop: 2 }} numberOfLines={2}>{visitLocation}</AppText>
+                      )}
+                    </View>
+                  </>
+                ) : locationStatus === 'blocked' ? (
+                  <>
+                    <Lock size={14} color="#DC2626" strokeWidth={2} />
+                    <AppText style={{ fontSize: 13, color: '#DC2626', flex: 1 }}>Location blocked — required</AppText>
+                    <TouchableOpacity onPress={openLocationSettings}>
+                      <AppText style={{ fontSize: 12, color: theme.colors.primary, fontFamily: 'Inter-SemiBold' }}>Open Settings</AppText>
+                    </TouchableOpacity>
+                  </>
+                ) : (
+                  <>
+                    <AlertTriangle size={14} color="#DC2626" strokeWidth={2} />
+                    <AppText style={{ fontSize: 13, color: '#DC2626', flex: 1 }}>Location required</AppText>
+                    <TouchableOpacity onPress={acquireLocation}>
+                      <AppText style={{ fontSize: 12, color: theme.colors.primary, fontFamily: 'Inter-SemiBold' }}>Retry</AppText>
+                    </TouchableOpacity>
+                  </>
+                )}
+              </View>
 
               <TouchableOpacity
-                onPress={() => { void step1Form.handleSubmit(onSaveStep1)(); }}
-                style={[s.submitBtn, { backgroundColor: theme.colors.primary, opacity: step1Form.formState.isSubmitting ? 0.7 : 1 }]}
-                disabled={step1Form.formState.isSubmitting}
+                onPress={() => {
+                  if (!coords) {
+                    Alert.alert(
+                      'Location Required',
+                      'GPS location must be captured before saving. Please enable location and try again.',
+                      locationStatus === 'blocked'
+                        ? [{ text: 'Open Settings', onPress: () => openLocationSettings() }, { text: 'Cancel', style: 'cancel' }]
+                        : [{ text: 'Retry', onPress: () => acquireLocation() }, { text: 'Cancel', style: 'cancel' }],
+                    );
+                    return;
+                  }
+                  void step1Form.handleSubmit(onSaveStep1)();
+                }}
+                style={[s.submitBtn, { backgroundColor: theme.colors.primary, opacity: (step1Form.formState.isSubmitting || locationLoading) ? 0.7 : 1 }]}
+                disabled={step1Form.formState.isSubmitting || locationLoading}
                 activeOpacity={0.85}
               >
                 <AppText style={s.submitBtnText}>
-                  {step1Form.formState.isSubmitting ? 'Saving…' : 'Save & Continue'}
+                  {step1Form.formState.isSubmitting ? 'Saving…' : locationLoading ? 'Getting Location…' : 'Save & Continue'}
                 </AppText>
               </TouchableOpacity>
             </View>
