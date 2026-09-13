@@ -27,6 +27,8 @@ import {
   CheckCircle,
   Check,
   Calendar,
+  ThumbsUp,
+  ThumbsDown,
 } from 'lucide-react-native';
 import { useTheme } from '@/design-system';
 import { Screen } from '@/components/common/Screen';
@@ -55,21 +57,19 @@ const step1Schema = z.object({
 });
 type Step1Data = z.infer<typeof step1Schema>;
 
-const PHONE_REGEX = /^[+]?[\d\s\-()]{7,15}$/;
-
 const step2Schema = z.object({
   contactName: z.string().min(1, 'Customer name is required'),
   contactPhone: z.string()
-    .optional()
-    .refine(val => !val || PHONE_REGEX.test(val), { message: 'Enter a valid phone number' }),
+    .min(1, 'Phone number is required')
+    .refine(val => {
+      const digits = val.replace(/\D/g, '');
+      return digits.length === 10;
+    }, { message: 'Enter a valid 10-digit mobile number' }),
   contactEmail: z.string()
     .optional()
     .refine(val => !val || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val), { message: 'Enter a valid email address' })
     .or(z.literal('')),
   discussionNote: z.string().max(1000, 'Max 1000 characters').optional(),
-}).refine(d => (d.contactPhone && d.contactPhone.length > 0) || (d.contactEmail && d.contactEmail.length > 0), {
-  message: 'Phone or email is required',
-  path: ['contactPhone'],
 });
 type Step2Data = z.infer<typeof step2Schema>;
 
@@ -120,10 +120,21 @@ function LockedStepCard({ title, fields, theme }: { title: string; fields: { lab
       </View>
       {fields.map(f => (
         <View key={f.label} style={s.lockedRow}>
-          <AppText style={{ fontSize: 12, fontFamily: 'Inter-Medium', color: theme.colors.textMuted }}>{f.label}</AppText>
-          <AppText style={{ fontSize: 13, fontFamily: 'Inter-Regular', color: theme.colors.text, flex: 1, textAlign: 'right' }} numberOfLines={1}>{f.value}</AppText>
+          <AppText style={s.lockedLabel}>{f.label}</AppText>
+          <AppText style={[s.lockedValue, { color: theme.colors.text }]}>{f.value}</AppText>
         </View>
       ))}
+    </View>
+  );
+}
+
+// --- Section Connector ---
+
+function SectionConnector({ theme }: { theme: any }) {
+  return (
+    <View style={s.connectorWrap}>
+      <View style={[s.connectorLine, { backgroundColor: theme.colors.border }]} />
+      <View style={[s.connectorDot, { backgroundColor: theme.colors.border }]} />
     </View>
   );
 }
@@ -197,14 +208,11 @@ export function LeadCreateScreen() {
   const [locationLoading, setLocationLoading] = useState(false);
 
   const acquireLocation = useCallback(async () => {
-    console.log('[LOCATION] acquireLocation called');
     setLocationLoading(true);
     try {
       let status = await checkLocationPermission();
-      console.log(`[LOCATION] permission status: ${status}`);
       if (status === 'denied') {
         status = await requestLocationPermission();
-        console.log(`[LOCATION] after request: ${status}`);
       }
       setLocationStatus(status);
 
@@ -238,20 +246,17 @@ export function LeadCreateScreen() {
       setLocationStatus('unavailable');
       const errCode = err?.code;
       if (errCode === 2) {
-        // POSITION_UNAVAILABLE — device GPS is likely OFF
         promptEnableLocationServices();
       } else if (errCode === 1) {
-        // PERMISSION_DENIED at OS level
         Alert.alert(
           'Location Permission Denied',
           'Please allow location access in your device settings.',
           [{ text: 'Open Settings', onPress: () => openLocationSettings() }, { text: 'Cancel', style: 'cancel' }],
         );
       } else {
-        // TIMEOUT or unknown
         Alert.alert(
           'Location Error',
-          'Could not get your location. Please make sure GPS is turned on in your device settings and try again.',
+          'Could not get your location. Please make sure GPS is turned on and try again.',
           [
             { text: 'Open GPS Settings', onPress: () => promptEnableLocationServices() },
             { text: 'Retry', onPress: () => acquireLocation() },
@@ -268,7 +273,6 @@ export function LeadCreateScreen() {
     acquireLocation();
   }, [acquireLocation]);
 
-  // Re-check location when user returns from Settings
   useEffect(() => {
     const sub = AppState.addEventListener('change', state => {
       if (state === 'active' && !coords && !locationLoading) {
@@ -282,7 +286,9 @@ export function LeadCreateScreen() {
   useEffect(() => {
     if (!coords) return;
     apiClient.get('/geo/reverse-geocode', { params: { lat: coords.latitude, lng: coords.longitude } })
-      .then((res: any) => { if (res.address) setVisitLocation(res.address); })
+      .then((res: any) => {
+        if (res.data?.address) setVisitLocation(res.data.address);
+      })
       .catch(() => {});
   }, [coords]);
 
@@ -379,6 +385,7 @@ export function LeadCreateScreen() {
 
       const res = await leadsApi.saveStep3(leadId, body);
       await queryClient.invalidateQueries({ queryKey: ['leads'] });
+      await queryClient.invalidateQueries({ queryKey: ['lead', leadId] });
       await queryClient.invalidateQueries({ queryKey: ['lead-dashboard-summary'] });
 
       if (res.data.opportunity?.id) {
@@ -437,29 +444,35 @@ export function LeadCreateScreen() {
 
           {/* Locked Step 1 */}
           {step > 1 && step1Values && (
-            <LockedStepCard
-              title="Site Visit"
-              theme={theme}
-              fields={[
-                { label: 'Company', value: step1Values.companyName },
-                ...(step1Values.remarks ? [{ label: 'Remarks', value: step1Values.remarks }] : []),
-                ...(coords ? [{ label: 'GPS', value: `${coords.latitude.toFixed(5)}, ${coords.longitude.toFixed(5)}` }] : []),
-              ]}
-            />
+            <>
+              <LockedStepCard
+                title="Site Visit"
+                theme={theme}
+                fields={[
+                  { label: 'Company', value: step1Values.companyName },
+                  ...(step1Values.remarks ? [{ label: 'Remarks', value: step1Values.remarks }] : []),
+                  ...(visitLocation ? [{ label: 'Location', value: visitLocation }] : []),
+                ]}
+              />
+              <SectionConnector theme={theme} />
+            </>
           )}
 
           {/* Locked Step 2 */}
           {step > 2 && step2Values && (
-            <LockedStepCard
-              title="Contact Details"
-              theme={theme}
-              fields={[
-                { label: 'Name', value: step2Values.contactName },
-                ...(step2Values.contactPhone ? [{ label: 'Phone', value: step2Values.contactPhone }] : []),
-                ...(step2Values.contactEmail ? [{ label: 'Email', value: step2Values.contactEmail }] : []),
-                ...(step2Values.discussionNote ? [{ label: 'Discussion', value: step2Values.discussionNote }] : []),
-              ]}
-            />
+            <>
+              <LockedStepCard
+                title="Contact Details"
+                theme={theme}
+                fields={[
+                  { label: 'Name', value: step2Values.contactName },
+                  ...(step2Values.contactPhone ? [{ label: 'Phone', value: step2Values.contactPhone }] : []),
+                  ...(step2Values.contactEmail ? [{ label: 'Email', value: step2Values.contactEmail }] : []),
+                  ...(step2Values.discussionNote ? [{ label: 'Discussion', value: step2Values.discussionNote }] : []),
+                ]}
+              />
+              <SectionConnector theme={theme} />
+            </>
           )}
 
           {/* === STEP 1: Site Visit === */}
@@ -499,11 +512,13 @@ export function LeadCreateScreen() {
                   </>
                 ) : locationStatus === 'granted' && coords ? (
                   <>
-                    <CheckCircle size={14} color="#059669" strokeWidth={2} />
+                    <MapPin size={16} color="#059669" strokeWidth={2} />
                     <View style={{ flex: 1 }}>
-                      <AppText style={{ fontSize: 13, color: '#059669' }}>GPS captured</AppText>
-                      {visitLocation && (
-                        <AppText style={{ fontSize: 11, color: theme.colors.textMuted, marginTop: 2 }} numberOfLines={2}>{visitLocation}</AppText>
+                      <AppText style={{ fontSize: 13, color: '#059669', fontFamily: 'Inter-SemiBold' }}>Location Captured</AppText>
+                      {visitLocation ? (
+                        <AppText style={{ fontSize: 12, color: theme.colors.text, marginTop: 4, lineHeight: 18 }} numberOfLines={3}>{visitLocation}</AppText>
+                      ) : (
+                        <AppText style={{ fontSize: 11, color: theme.colors.textMuted, marginTop: 2, fontStyle: 'italic' }}>Fetching address…</AppText>
                       )}
                     </View>
                   </>
@@ -569,21 +584,21 @@ export function LeadCreateScreen() {
 
               <Controller control={step2Form.control} name="contactPhone" render={({ field }) => (
                 <AppInput
-                  label="Contact Number"
-                  placeholder="+91 98765 43210"
+                  label="Mobile Number"
+                  placeholder="e.g. 9876543210"
                   value={field.value}
-                  onChangeText={(text: string) => field.onChange(text.replace(/[^0-9+\-\s()]/g, ''))}
+                  onChangeText={(text: string) => field.onChange(text.replace(/[^0-9]/g, ''))}
                   onBlur={field.onBlur}
                   error={step2Form.formState.errors.contactPhone?.message}
                   keyboardType="phone-pad"
-                  maxLength={15}
+                  maxLength={10}
                   returnKeyType="next"
                 />
               )} />
 
               <Controller control={step2Form.control} name="contactEmail" render={({ field }) => (
                 <AppInput
-                  label="Email"
+                  label="Email (Optional)"
                   placeholder="name@company.com"
                   value={field.value}
                   onChangeText={field.onChange}
@@ -627,26 +642,42 @@ export function LeadCreateScreen() {
             <View style={s.form}>
               {/* Top-level: Qualified / Not Qualified */}
               {!qualPath && (
-                <View style={s.optionRow}>
+                <>
+                  <AppText style={{ fontSize: 16, fontFamily: 'Inter-SemiBold', color: theme.colors.text, textAlign: 'center', marginBottom: 4 }}>
+                    How did the visit go?
+                  </AppText>
+                  <AppText style={{ fontSize: 13, color: theme.colors.textMuted, textAlign: 'center', marginBottom: 20 }}>
+                    Is this lead worth pursuing?
+                  </AppText>
                   <TouchableOpacity
                     onPress={() => setQualPath('QUALIFIED')}
-                    style={[s.optionCard, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}
+                    style={[s.qualBtn, { backgroundColor: '#ECFDF5', borderColor: '#A7F3D0' }]}
                     activeOpacity={0.8}
                   >
-                    <CheckCircle size={28} color="#059669" strokeWidth={1.5} />
-                    <AppText style={{ fontSize: 16, fontFamily: 'Inter-SemiBold', color: theme.colors.text, marginTop: 8 }}>Qualified</AppText>
-                    <AppText style={{ fontSize: 12, color: theme.colors.textMuted, textAlign: 'center', marginTop: 4 }}>Lead has potential</AppText>
+                    <View style={[s.qualBtnIcon, { backgroundColor: '#059669' }]}>
+                      <ThumbsUp size={20} color="#FFF" strokeWidth={2} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <AppText style={{ fontSize: 16, fontFamily: 'Inter-SemiBold', color: '#065F46' }}>Qualified</AppText>
+                      <AppText style={{ fontSize: 12, color: '#059669', marginTop: 2 }}>Lead has potential, proceed further</AppText>
+                    </View>
+                    <ChevronLeft size={18} color="#059669" strokeWidth={2} style={{ transform: [{ rotate: '180deg' }] }} />
                   </TouchableOpacity>
                   <TouchableOpacity
                     onPress={() => setQualPath('NOT_QUALIFIED')}
-                    style={[s.optionCard, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}
+                    style={[s.qualBtn, { backgroundColor: '#FEF2F2', borderColor: '#FECACA' }]}
                     activeOpacity={0.8}
                   >
-                    <AlertTriangle size={28} color="#DC2626" strokeWidth={1.5} />
-                    <AppText style={{ fontSize: 16, fontFamily: 'Inter-SemiBold', color: theme.colors.text, marginTop: 8 }}>Not Qualified</AppText>
-                    <AppText style={{ fontSize: 12, color: theme.colors.textMuted, textAlign: 'center', marginTop: 4 }}>Cancel this lead</AppText>
+                    <View style={[s.qualBtnIcon, { backgroundColor: '#DC2626' }]}>
+                      <ThumbsDown size={20} color="#FFF" strokeWidth={2} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <AppText style={{ fontSize: 16, fontFamily: 'Inter-SemiBold', color: '#991B1B' }}>Not Qualified</AppText>
+                      <AppText style={{ fontSize: 12, color: '#DC2626', marginTop: 2 }}>Cancel this lead</AppText>
+                    </View>
+                    <ChevronLeft size={18} color="#DC2626" strokeWidth={2} style={{ transform: [{ rotate: '180deg' }] }} />
                   </TouchableOpacity>
-                </View>
+                </>
               )}
 
               {/* Not Qualified → Remark + Cancel */}
@@ -870,7 +901,7 @@ export function LeadCreateScreen() {
                     )}
                   </View>
                   <AppInput
-                    label="Amount (₹)"
+                    label="Amount"
                     placeholder="e.g. 150000"
                     value={quotationAmount}
                     onChangeText={setQuotationAmount}
@@ -905,13 +936,18 @@ const s = StyleSheet.create({
   backBtn: { width: 38, height: 38, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
   pageTitle: { fontSize: 26, fontFamily: 'Inter-Bold', lineHeight: 32 },
   pageSub: { fontSize: 13, fontFamily: 'Inter-SemiBold', marginTop: 2 },
-  form: { gap: 4, marginTop: 16 },
+  form: { gap: 4, marginTop: 8 },
   stepRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 0, marginBottom: 8 },
   stepDot: { width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
   stepLine: { height: 2, width: 40, marginHorizontal: 8 },
-  lockedCard: { borderRadius: 12, borderWidth: 1, padding: 14, marginTop: 12, gap: 6 },
+  lockedCard: { borderRadius: 12, borderWidth: 1, padding: 14, gap: 8 },
   lockedHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 2 },
-  lockedRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 12 },
+  lockedRow: { flexDirection: 'column', gap: 2 },
+  lockedLabel: { fontSize: 11, fontFamily: 'Inter-Medium', color: '#94A3B8', textTransform: 'uppercase', letterSpacing: 0.5 },
+  lockedValue: { fontSize: 14, fontFamily: 'Inter-Regular', lineHeight: 20 },
+  connectorWrap: { alignItems: 'center', height: 28 },
+  connectorLine: { width: 1.5, flex: 1 },
+  connectorDot: { width: 6, height: 6, borderRadius: 3 },
   optionRow: { flexDirection: 'row', gap: 12, marginTop: 4 },
   optionCard: {
     flex: 1,
@@ -920,6 +956,22 @@ const s = StyleSheet.create({
     paddingVertical: 28,
     borderRadius: 16,
     borderWidth: 1,
+  },
+  qualBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    gap: 14,
+    marginBottom: 12,
+  },
+  qualBtnIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   backLink: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 8 },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },

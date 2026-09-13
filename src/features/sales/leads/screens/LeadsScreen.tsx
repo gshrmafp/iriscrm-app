@@ -88,9 +88,7 @@ function initials(name: string): string {
 
 function formatDealValue(val?: number): string | null {
   if (!val) return null;
-  if (val >= 100000) return `₹${(val / 100000).toFixed(1)}L`;
-  if (val >= 1000) return `₹${(val / 1000).toFixed(1)}k`;
-  return `₹${val}`;
+  return `₹${val.toLocaleString('en-IN')}`;
 }
 
 function timeAgoLabel(dateStr?: string): string {
@@ -257,6 +255,7 @@ export function LeadsScreen() {
         const fetched = lastPage.page * lastPage.pageSize;
         return fetched < lastPage.total ? lastPage.page + 1 : undefined;
       },
+      refetchOnMount: 'always',
     });
 
   const allLeads = data?.pages.flatMap(p => p.items) ?? [];

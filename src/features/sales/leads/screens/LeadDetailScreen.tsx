@@ -10,14 +10,17 @@ import {
   KeyboardAvoidingView,
   Keyboard,
   Platform,
-  ActivityIndicator,
   Linking,
 } from 'react-native';
 import { RouteProp, useRoute, useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Phone, Mail, CalendarDays, Target, MapPin, MoreHorizontal, ChevronLeft, ChevronRight, Zap } from 'lucide-react-native';
+import {
+  Phone, Mail, CalendarDays, MapPin, MoreHorizontal,
+  ChevronLeft, ChevronRight, Zap, Building2, User,
+  MessageSquare, FileText, Clock, Tag,
+} from 'lucide-react-native';
 import { useTheme } from '@/design-system';
 import { Screen } from '@/components/common/Screen';
 import { AppText } from '@/components/common/AppText';
@@ -25,7 +28,6 @@ import { AppButton } from '@/components/common/AppButton';
 import { Loader } from '@/components/feedback/Loader';
 import { SalesStackParamList } from '@/features/sales/navigation/types';
 import { leadsApi } from '@/services/api/leads.api';
-import { formatFollowUpTime } from '@/utils/date';
 import { DARK_NAVY } from '@/constants/brandColors';
 
 type RouteProps = RouteProp<SalesStackParamList, 'LeadDetail'>;
@@ -48,6 +50,17 @@ const STATUS_INFO: Record<string, { label: string; bg: string; color: string }> 
   LOST:      { label: 'Lost',      bg: '#FEE2E2', color: '#991B1B' },
 };
 
+const OPP_STAGE_INFO: Record<string, { label: string; bg: string; color: string }> = {
+  NEW:         { label: 'New Visit',   bg: '#DBEAFE', color: '#1D4ED8' },
+  CONTACTED:   { label: 'Contacted',   bg: '#E9D5FF', color: '#7C3AED' },
+  QUALIFIED:   { label: 'Qualified',   bg: '#D1FAE5', color: '#065F46' },
+  QUOTED:      { label: 'Quotation',   bg: '#FEF3C7', color: '#D97706' },
+  NEGOTIATION: { label: 'Follow-ups',  bg: '#FFEDD5', color: '#C2410C' },
+  MEETING:     { label: 'Meeting',     bg: '#E0E7FF', color: '#4338CA' },
+  WON:         { label: 'PO',          bg: '#DCFCE7', color: '#15803D' },
+  LOST:        { label: 'Lost',        bg: '#FEE2E2', color: '#991B1B' },
+};
+
 const DEAL_TYPES = [
   { label: 'Installation', value: 'INSTALLATION' },
   { label: 'AMC', value: 'AMC' },
@@ -57,16 +70,9 @@ const DEAL_TYPES = [
 function formatCurrency(val: string | number): string {
   const num = typeof val === 'string' ? Number(val) : val;
   if (!num) return '—';
-  if (num >= 100000) return `₹${(num / 100000).toFixed(1)}L`;
-  if (num >= 1000) return `₹${(num / 1000).toFixed(1)}k`;
-  return `₹${num}`;
+  return `₹${num.toLocaleString('en-IN')}`;
 }
 
-// The extra safe-area padding is only for the Android nav bar / iOS home
-// indicator — once the keyboard is up it already covers that area, so
-// keeping the padding on top of it would just push Save further up for no
-// reason. Android fires *Did* events; iOS fires *Will* (smoother with the
-// keyboard's own slide animation).
 function useKeyboardVisible() {
   const [visible, setVisible] = useState(false);
   useEffect(() => {
@@ -74,66 +80,42 @@ function useKeyboardVisible() {
     const hideEvent = Platform.OS === 'android' ? 'keyboardDidHide' : 'keyboardWillHide';
     const showSub = Keyboard.addListener(showEvent, () => setVisible(true));
     const hideSub = Keyboard.addListener(hideEvent, () => setVisible(false));
-    return () => {
-      showSub.remove();
-      hideSub.remove();
-    };
+    return () => { showSub.remove(); hideSub.remove(); };
   }, []);
   return visible;
 }
 
 function QualifyModal({ visible, onClose, onSubmit, loading }: {
-  visible: boolean;
-  onClose: () => void;
-  onSubmit: (data: { dealType: string; value: number }) => void;
-  loading: boolean;
+  visible: boolean; onClose: () => void;
+  onSubmit: (data: { dealType: string; value: number }) => void; loading: boolean;
 }) {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const keyboardVisible = useKeyboardVisible();
   const [dealType, setDealType] = useState('INSTALLATION');
   const [value, setValue] = useState('');
-
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <KeyboardAvoidingView style={styles.modalOverlay} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-        <View style={[styles.modalSheet, { backgroundColor: theme.colors.surface, paddingBottom: 20 + (keyboardVisible ? 0 : insets.bottom) }]}>
-          <View style={[styles.modalHandle, { backgroundColor: theme.colors.border }]} />
-          <AppText style={styles.modalTitle} color={theme.colors.text}>Qualify into an opportunity</AppText>
-          <View style={styles.channelRow}>
+      <KeyboardAvoidingView style={st.modalOverlay} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+        <View style={[st.modalSheet, { backgroundColor: theme.colors.surface, paddingBottom: 20 + (keyboardVisible ? 0 : insets.bottom) }]}>
+          <View style={[st.modalHandle, { backgroundColor: theme.colors.border }]} />
+          <AppText style={st.modalTitle} color={theme.colors.text}>Qualify into an opportunity</AppText>
+          <View style={st.channelRow}>
             {DEAL_TYPES.map(t => (
-              <TouchableOpacity
-                key={t.value}
-                onPress={() => setDealType(t.value)}
-                style={[styles.channelChip, { backgroundColor: dealType === t.value ? theme.colors.primary : theme.colors.surfaceAlt }]}
-              >
-                <AppText style={{ fontSize: 12, fontFamily: 'Inter-Medium', color: dealType === t.value ? '#FFF' : theme.colors.textSecondary }}>
-                  {t.label}
-                </AppText>
+              <TouchableOpacity key={t.value} onPress={() => setDealType(t.value)}
+                style={[st.channelChip, { backgroundColor: dealType === t.value ? theme.colors.primary : theme.colors.surfaceAlt }]}>
+                <AppText style={{ fontSize: 12, fontFamily: 'Inter-Medium', color: dealType === t.value ? '#FFF' : theme.colors.textSecondary }}>{t.label}</AppText>
               </TouchableOpacity>
             ))}
           </View>
-          <TextInput
-            value={value}
-            onChangeText={setValue}
-            placeholder="Deal value (₹)"
-            placeholderTextColor={theme.colors.textMuted}
-            keyboardType="numeric"
-            style={[styles.noteInput, { backgroundColor: theme.colors.surfaceAlt, color: theme.colors.text, minHeight: 48 }]}
-          />
-          <View style={styles.modalActions}>
-            <TouchableOpacity onPress={onClose} style={[styles.cancelBtn, { borderColor: theme.colors.border }]}>
+          <TextInput value={value} onChangeText={setValue} placeholder="Deal value (₹)" placeholderTextColor={theme.colors.textMuted}
+            keyboardType="numeric" style={[st.noteInput, { backgroundColor: theme.colors.surfaceAlt, color: theme.colors.text, minHeight: 48 }]} />
+          <View style={st.modalActions}>
+            <TouchableOpacity onPress={onClose} style={[st.cancelBtn, { borderColor: theme.colors.border }]}>
               <AppText style={{ fontSize: 14, fontFamily: 'Inter-Medium', color: theme.colors.textSecondary }}>Cancel</AppText>
             </TouchableOpacity>
-            <AppButton
-              label="Create opportunity"
-              onPress={() => {
-                const num = Number(value);
-                if (dealType && num > 0) onSubmit({ dealType, value: num });
-              }}
-              loading={loading}
-              style={{ flex: 1 }}
-            />
+            <AppButton label="Create opportunity" onPress={() => { const num = Number(value); if (dealType && num > 0) onSubmit({ dealType, value: num }); }}
+              loading={loading} style={{ flex: 1 }} />
           </View>
         </View>
       </KeyboardAvoidingView>
@@ -141,26 +123,9 @@ function QualifyModal({ visible, onClose, onSubmit, loading }: {
   );
 }
 
-function ContactRow({ Icon, label, value }: { Icon: React.ComponentType<any>; label: string; value: string }) {
-  const theme = useTheme();
-  return (
-    <View style={styles.contactRow}>
-      <View style={[styles.contactIcon, { backgroundColor: theme.colors.primaryLight }]}>
-        <Icon size={16} color={theme.colors.primary} strokeWidth={2} />
-      </View>
-      <View style={{ flex: 1, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-        <AppText style={styles.contactLabel} color={theme.colors.textMuted}>{label}</AppText>
-        <AppText style={styles.contactValue} color={theme.colors.text} numberOfLines={1}>{value}</AppText>
-      </View>
-    </View>
-  );
-}
-
 function FollowUpModal({ visible, onClose, onSubmit, loading }: {
-  visible: boolean;
-  onClose: () => void;
-  onSubmit: (data: { note: string; channel: string }) => void;
-  loading: boolean;
+  visible: boolean; onClose: () => void;
+  onSubmit: (data: { note: string; channel: string }) => void; loading: boolean;
 }) {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
@@ -168,48 +133,59 @@ function FollowUpModal({ visible, onClose, onSubmit, loading }: {
   const [note, setNote] = useState('');
   const [channel, setChannel] = useState('call');
   const channels = ['call', 'email', 'meeting', 'visit'];
-
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <KeyboardAvoidingView style={styles.modalOverlay} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-        <View style={[styles.modalSheet, { backgroundColor: theme.colors.surface, paddingBottom: 20 + (keyboardVisible ? 0 : insets.bottom) }]}>
-          <View style={[styles.modalHandle, { backgroundColor: theme.colors.border }]} />
-          <AppText style={styles.modalTitle} color={theme.colors.text}>Log Follow-up</AppText>
-          <View style={styles.channelRow}>
+      <KeyboardAvoidingView style={st.modalOverlay} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+        <View style={[st.modalSheet, { backgroundColor: theme.colors.surface, paddingBottom: 20 + (keyboardVisible ? 0 : insets.bottom) }]}>
+          <View style={[st.modalHandle, { backgroundColor: theme.colors.border }]} />
+          <AppText style={st.modalTitle} color={theme.colors.text}>Log Follow-up</AppText>
+          <View style={st.channelRow}>
             {channels.map(c => (
-              <TouchableOpacity
-                key={c}
-                onPress={() => setChannel(c)}
-                style={[styles.channelChip, { backgroundColor: channel === c ? theme.colors.primary : theme.colors.surfaceAlt }]}
-              >
-                <AppText style={{ fontSize: 12, fontFamily: 'Inter-Medium', color: channel === c ? '#FFF' : theme.colors.textSecondary, textTransform: 'capitalize' }}>
-                  {c}
-                </AppText>
+              <TouchableOpacity key={c} onPress={() => setChannel(c)}
+                style={[st.channelChip, { backgroundColor: channel === c ? theme.colors.primary : theme.colors.surfaceAlt }]}>
+                <AppText style={{ fontSize: 12, fontFamily: 'Inter-Medium', color: channel === c ? '#FFF' : theme.colors.textSecondary, textTransform: 'capitalize' }}>{c}</AppText>
               </TouchableOpacity>
             ))}
           </View>
-          <TextInput
-            value={note}
-            onChangeText={setNote}
-            placeholder="Notes from this interaction…"
-            placeholderTextColor={theme.colors.textMuted}
-            multiline
-            style={[styles.noteInput, { backgroundColor: theme.colors.surfaceAlt, color: theme.colors.text }]}
-          />
-          <View style={styles.modalActions}>
-            <TouchableOpacity onPress={onClose} style={[styles.cancelBtn, { borderColor: theme.colors.border }]}>
+          <TextInput value={note} onChangeText={setNote} placeholder="Notes from this interaction…" placeholderTextColor={theme.colors.textMuted}
+            multiline style={[st.noteInput, { backgroundColor: theme.colors.surfaceAlt, color: theme.colors.text }]} />
+          <View style={st.modalActions}>
+            <TouchableOpacity onPress={onClose} style={[st.cancelBtn, { borderColor: theme.colors.border }]}>
               <AppText style={{ fontSize: 14, fontFamily: 'Inter-Medium', color: theme.colors.textSecondary }}>Cancel</AppText>
             </TouchableOpacity>
-            <AppButton
-              label="Save"
-              onPress={() => note.trim() && onSubmit({ note: note.trim(), channel })}
-              loading={loading}
-              style={{ flex: 1 }}
-            />
+            <AppButton label="Save" onPress={() => note.trim() && onSubmit({ note: note.trim(), channel })} loading={loading} style={{ flex: 1 }} />
           </View>
         </View>
       </KeyboardAvoidingView>
     </Modal>
+  );
+}
+
+// --- Detail Row ---
+function DetailRow({ Icon, label, value, onPress }: { Icon: React.ComponentType<any>; label: string; value: string; onPress?: () => void }) {
+  const theme = useTheme();
+  const content = (
+    <View style={st.detailRow}>
+      <View style={[st.detailIcon, { backgroundColor: theme.colors.primaryLight }]}>
+        <Icon size={15} color={theme.colors.primary} strokeWidth={2} />
+      </View>
+      <View style={{ flex: 1 }}>
+        <AppText style={st.detailLabel} color={theme.colors.textMuted}>{label}</AppText>
+        <AppText style={[st.detailValue, onPress && { color: theme.colors.primary }]} color={theme.colors.text}>{value}</AppText>
+      </View>
+    </View>
+  );
+  if (onPress) return <TouchableOpacity onPress={onPress} activeOpacity={0.7}>{content}</TouchableOpacity>;
+  return content;
+}
+
+// --- Info Block ---
+function InfoBlock({ title, text, theme }: { title: string; text: string; theme: any }) {
+  return (
+    <View style={[st.section, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
+      <AppText style={st.sectionTitle} color={theme.colors.text}>{title}</AppText>
+      <AppText style={st.infoText} color={theme.colors.textSecondary}>{text}</AppText>
+    </View>
   );
 }
 
@@ -225,6 +201,7 @@ export function LeadDetailScreen() {
   const { data, isLoading, isError } = useQuery({
     queryKey: ['lead', route.params.id],
     queryFn: () => leadsApi.getOne(route.params.id).then(r => r.data),
+    refetchOnMount: 'always',
   });
 
   const followUpMutation = useMutation({
@@ -267,14 +244,11 @@ export function LeadDetailScreen() {
     ]);
   };
 
-  const handleCall = (phone: string) => Linking.openURL(`tel:${phone}`).catch(() => {});
-  const handleEmail = (email: string) => Linking.openURL(`mailto:${email}`).catch(() => {});
-
   if (isLoading) return <Screen edges={['left', 'right', 'bottom']}><Loader /></Screen>;
   if (isError || !data) {
     return (
       <Screen edges={['left', 'right', 'bottom']}>
-        <View style={styles.errorCenter}>
+        <View style={st.errorCenter}>
           <AppText style={{ color: theme.colors.textMuted }}>Failed to load lead.</AppText>
         </View>
       </Screen>
@@ -285,121 +259,149 @@ export function LeadDetailScreen() {
   const company = data.companyName ?? '';
   const ini = displayName.split(' ').slice(0, 2).map((w: string) => w[0] ?? '').join('').toUpperCase() || '?';
   const avatarBg = avatarColor(displayName);
-  const statusInfo = STATUS_INFO[data.status] ?? { label: data.status, bg: theme.colors.surfaceAlt, color: theme.colors.textMuted };
-  const lastFollowUp = data.followUps?.[0];
   const opportunity = data.opportunity;
+  const lastFollowUp = data.followUps?.[0];
+
+  // Status badge: if opportunity exists use its stage, otherwise use lead status
+  const badge = opportunity
+    ? OPP_STAGE_INFO[opportunity.stage] ?? { label: opportunity.stage, bg: theme.colors.surfaceAlt, color: theme.colors.textMuted }
+    : STATUS_INFO[data.status] ?? { label: data.status, bg: theme.colors.surfaceAlt, color: theme.colors.textMuted };
+
+  const createdDate = new Date(data.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
 
   return (
     <Screen edges={['left', 'right', 'bottom']}>
       {/* Top nav bar */}
-      <View style={[styles.navBar, { paddingTop: insets.top + 4, backgroundColor: theme.colors.surface, borderBottomColor: theme.colors.border }]}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={[styles.backBtn, { backgroundColor: theme.colors.surfaceAlt }]}>
+      <View style={[st.navBar, { paddingTop: insets.top + 4, backgroundColor: theme.colors.surface, borderBottomColor: theme.colors.border }]}>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={[st.backBtn, { backgroundColor: theme.colors.surfaceAlt }]}>
           <ChevronLeft size={20} color={theme.colors.text} strokeWidth={2} />
         </TouchableOpacity>
-        <View style={styles.navCenter}>
-          <View style={[styles.navAvatar, { backgroundColor: avatarBg }]}>
-            <AppText style={styles.navAvatarText}>{ini}</AppText>
+        <View style={st.navCenter}>
+          <View style={[st.navAvatar, { backgroundColor: avatarBg }]}>
+            <AppText style={st.navAvatarText}>{ini}</AppText>
           </View>
           <View style={{ flex: 1 }}>
-            <AppText style={styles.navName} color={theme.colors.text} numberOfLines={1}>{displayName}</AppText>
-            {company ? <AppText style={styles.navCompany} color={theme.colors.textMuted} numberOfLines={1}>{company}</AppText> : null}
+            <AppText style={st.navName} color={theme.colors.text} numberOfLines={1}>{displayName}</AppText>
+            {company && company !== displayName ? <AppText style={st.navCompany} color={theme.colors.textMuted} numberOfLines={1}>{company}</AppText> : null}
+          </View>
+          <View style={[st.statusPill, { backgroundColor: badge.bg }]}>
+            <AppText style={{ fontSize: 11, fontFamily: 'Inter-SemiBold', color: badge.color }}>{badge.label}</AppText>
           </View>
         </View>
-        <TouchableOpacity style={[styles.moreBtn, { backgroundColor: theme.colors.surfaceAlt }]} activeOpacity={0.75}>
-          <MoreHorizontal size={18} color={theme.colors.textMuted} strokeWidth={2} />
-        </TouchableOpacity>
       </View>
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scroll}>
-        {/* 3 action buttons */}
-        <View style={styles.actionRow}>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={st.scroll}>
+
+        {/* Quick actions */}
+        <View style={st.actionRow}>
           {[
-            { Icon: Phone, label: 'Call', onPress: data.contactPhone ? () => handleCall(data.contactPhone!) : undefined },
-            { Icon: Mail, label: 'Email', onPress: data.contactEmail ? () => handleEmail(data.contactEmail!) : undefined },
+            { Icon: Phone, label: 'Call', onPress: data.contactPhone ? () => Linking.openURL(`tel:${data.contactPhone}`).catch(() => {}) : undefined },
+            { Icon: Mail, label: 'Email', onPress: data.contactEmail ? () => Linking.openURL(`mailto:${data.contactEmail}`).catch(() => {}) : undefined },
             { Icon: CalendarDays, label: 'Follow up', onPress: () => setFollowUpModal(true) },
           ].map(a => (
-            <TouchableOpacity
-              key={a.label}
-              onPress={a.onPress}
-              disabled={!a.onPress}
-              style={[styles.actionCard, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border, opacity: a.onPress ? 1 : 0.4 }]}
-              activeOpacity={0.75}
-            >
-              <View style={[styles.actionIcon, { backgroundColor: theme.colors.primaryLight }]}>
+            <TouchableOpacity key={a.label} onPress={a.onPress} disabled={!a.onPress}
+              style={[st.actionCard, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border, opacity: a.onPress ? 1 : 0.4 }]} activeOpacity={0.75}>
+              <View style={[st.actionIcon, { backgroundColor: theme.colors.primaryLight }]}>
                 <a.Icon size={20} color={theme.colors.primary} strokeWidth={2} />
               </View>
-              <AppText style={styles.actionLabel} color={theme.colors.text}>{a.label}</AppText>
+              <AppText style={st.actionLabel} color={theme.colors.text}>{a.label}</AppText>
             </TouchableOpacity>
           ))}
         </View>
 
         {/* Opportunity / qualify card */}
         {opportunity ? (
-          <TouchableOpacity
-            onPress={() => navigation.navigate('OpportunityDetail', { id: opportunity.id })}
-            style={[styles.dealCard, { backgroundColor: DARK_NAVY }]}
-            activeOpacity={0.85}
-          >
+          <TouchableOpacity onPress={() => navigation.navigate('OpportunityDetail', { id: opportunity.id })}
+            style={[st.dealCard, { backgroundColor: DARK_NAVY }]} activeOpacity={0.85}>
             <View>
-              <AppText style={styles.dealCardLabel}>OPPORTUNITY VALUE</AppText>
-              <AppText style={styles.dealCardValue}>{formatCurrency(opportunity.value)}</AppText>
+              <AppText style={st.dealCardLabel}>OPPORTUNITY VALUE</AppText>
+              <AppText style={st.dealCardValue}>{formatCurrency(opportunity.value)}</AppText>
             </View>
-            <View style={[styles.statusPill, { backgroundColor: 'rgba(255,255,255,0.15)' }]}>
-              <AppText style={styles.statusPillText} color="#FFFFFF">{opportunity.stage}</AppText>
+            <View style={[st.oppStagePill, { backgroundColor: 'rgba(255,255,255,0.15)' }]}>
+              <AppText style={{ fontSize: 12, fontFamily: 'Inter-SemiBold', color: '#FFF' }}>
+                {OPP_STAGE_INFO[opportunity.stage]?.label ?? opportunity.stage}
+              </AppText>
               <ChevronRight size={14} color="#FFFFFF" strokeWidth={2} />
             </View>
           </TouchableOpacity>
         ) : data.status === 'NEW' ? (
-          <View style={[styles.dealCard, { backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border }]}>
+          <View style={[st.dealCard, { backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border }]}>
             <View style={{ flex: 1 }}>
               <AppText style={{ fontSize: 13, fontFamily: 'Inter-SemiBold' }} color={theme.colors.text}>Not yet qualified</AppText>
-              <AppText style={{ fontSize: 12, fontFamily: 'Inter-Regular', marginTop: 2 }} color={theme.colors.textMuted}>
-                Qualify to create an opportunity
-              </AppText>
+              <AppText style={{ fontSize: 12, fontFamily: 'Inter-Regular', marginTop: 2 }} color={theme.colors.textMuted}>Qualify to create an opportunity</AppText>
             </View>
             <AppButton label="Qualify" size="sm" onPress={() => setQualifyModal(true)} />
           </View>
         ) : (
-          <View style={[styles.dealCard, { backgroundColor: DARK_NAVY }]}>
+          <View style={[st.dealCard, { backgroundColor: DARK_NAVY }]}>
             <View>
-              <AppText style={styles.dealCardLabel}>STATUS</AppText>
-              <AppText style={styles.dealCardValue}>{statusInfo.label}</AppText>
+              <AppText style={st.dealCardLabel}>STATUS</AppText>
+              <AppText style={st.dealCardValue}>{badge.label}</AppText>
             </View>
-            <View style={[styles.statusPill, { backgroundColor: statusInfo.bg }]}>
-              <AppText style={styles.statusPillText} color={statusInfo.color}>{statusInfo.label}</AppText>
+            <View style={[st.oppStagePill, { backgroundColor: badge.bg }]}>
+              <AppText style={{ fontSize: 12, fontFamily: 'Inter-SemiBold', color: badge.color }}>{badge.label}</AppText>
             </View>
           </View>
         )}
 
-        {/* Contact details */}
-        {(data.contactEmail || data.contactPhone || data.address) && (
-          <View style={[styles.section, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
-            <AppText style={{ ...styles.sectionTitle, marginBottom: 12 }} color={theme.colors.text}>Contact details</AppText>
-            {data.source && <ContactRow Icon={Target} label="Source" value={data.source} />}
-            {data.contactEmail && <ContactRow Icon={Mail} label="Email" value={data.contactEmail} />}
-            {data.contactPhone && <ContactRow Icon={Phone} label="Phone" value={data.contactPhone} />}
-            {data.address && <ContactRow Icon={MapPin} label="Address" value={data.address} />}
+        {/* Lead Info Card */}
+        <View style={[st.section, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
+          <AppText style={st.sectionTitle} color={theme.colors.text}>Lead Info</AppText>
+          <DetailRow Icon={Tag} label="Reference" value={data.refNo} />
+          <DetailRow Icon={Building2} label="Company" value={company || '—'} />
+          {data.source && <DetailRow Icon={FileText} label="Source" value={data.source} />}
+          <DetailRow Icon={Clock} label="Created" value={createdDate} />
+          {data.owner && <DetailRow Icon={User} label="Owner" value={data.owner.name} />}
+        </View>
+
+        {/* Contact Details */}
+        {(data.contactName || data.contactPhone || data.contactEmail) && (
+          <View style={[st.section, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
+            <AppText style={st.sectionTitle} color={theme.colors.text}>Contact Details</AppText>
+            {data.contactName && <DetailRow Icon={User} label="Name" value={data.contactName} />}
+            {data.contactPhone && (
+              <DetailRow Icon={Phone} label="Phone" value={data.contactPhone}
+                onPress={() => Linking.openURL(`tel:${data.contactPhone}`).catch(() => {})} />
+            )}
+            {data.contactEmail && (
+              <DetailRow Icon={Mail} label="Email" value={data.contactEmail}
+                onPress={() => Linking.openURL(`mailto:${data.contactEmail}`).catch(() => {})} />
+            )}
+            {data.address && <DetailRow Icon={MapPin} label="Address" value={data.address} />}
           </View>
         )}
+
+        {/* Visit Location */}
+        {(data.visitLocation || data.gpsLatitude) && (
+          <View style={[st.section, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
+            <AppText style={st.sectionTitle} color={theme.colors.text}>Visit Location</AppText>
+            {data.visitLocation && <DetailRow Icon={MapPin} label="Address" value={data.visitLocation} />}
+          </View>
+        )}
+
+        {/* Remarks */}
+        {data.remarks && <InfoBlock title="Remarks" text={data.remarks} theme={theme} />}
+
+        {/* Discussion Note */}
+        {data.discussionNote && <InfoBlock title="Discussion Note" text={data.discussionNote} theme={theme} />}
+
+        {/* Notes */}
+        {data.notes && <InfoBlock title="Notes" text={data.notes} theme={theme} />}
 
         {/* Next best action */}
         {lastFollowUp && (
-          <View style={[styles.section, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
-            <AppText style={{ ...styles.sectionTitle, marginBottom: 12 }} color={theme.colors.text}>Next best action</AppText>
-            <TouchableOpacity
-              style={[styles.nextActionCard, { backgroundColor: theme.colors.primaryLight }]}
-              activeOpacity={0.75}
-              onPress={() => setFollowUpModal(true)}
-            >
-              <View style={[styles.nextActionIcon, { backgroundColor: theme.colors.primary }]}>
+          <View style={[st.section, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
+            <AppText style={st.sectionTitle} color={theme.colors.text}>Last Follow-up</AppText>
+            <TouchableOpacity style={[st.nextActionCard, { backgroundColor: theme.colors.primaryLight }]} activeOpacity={0.75}
+              onPress={() => setFollowUpModal(true)}>
+              <View style={[st.nextActionIcon, { backgroundColor: theme.colors.primary }]}>
                 <Zap size={18} color="#FFF" strokeWidth={2} />
               </View>
               <View style={{ flex: 1 }}>
-                <AppText style={styles.nextActionTitle} color={theme.colors.text} numberOfLines={1}>
-                  {lastFollowUp.note}
-                </AppText>
-                <AppText style={styles.nextActionSub} color={theme.colors.textMuted}>
-                  Last touch {lastFollowUp.createdAt ? new Date(lastFollowUp.createdAt).toLocaleString('en-IN', { weekday: 'short', hour: '2-digit', minute: '2-digit' }) : ''}
+                <AppText style={{ fontSize: 14, fontFamily: 'Inter-SemiBold' }} color={theme.colors.text}>{lastFollowUp.note}</AppText>
+                <AppText style={{ fontSize: 12, fontFamily: 'Inter-Regular', marginTop: 2 }} color={theme.colors.textMuted}>
+                  {lastFollowUp.channel ? `${lastFollowUp.channel} · ` : ''}
+                  {lastFollowUp.createdAt ? new Date(lastFollowUp.createdAt).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : ''}
                 </AppText>
               </View>
               <ChevronRight size={18} color={theme.colors.primary} strokeWidth={2} />
@@ -407,54 +409,42 @@ export function LeadDetailScreen() {
           </View>
         )}
 
-        {/* Notes */}
-        {data.notes && (
-          <View style={[styles.section, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
-            <AppText style={{ ...styles.sectionTitle, marginBottom: 8 }} color={theme.colors.text}>Notes</AppText>
-            <AppText style={styles.notesText} color={theme.colors.textSecondary}>{data.notes}</AppText>
+        {/* Qualification path */}
+        {data.qualificationPath && (
+          <View style={[st.section, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
+            <AppText style={st.sectionTitle} color={theme.colors.text}>Qualification</AppText>
+            <DetailRow Icon={FileText} label="Path" value={data.qualificationPath.replace(/_/g, ' ')} />
+            {data.lostReason && <DetailRow Icon={FileText} label="Lost Reason" value={data.lostReason} />}
           </View>
         )}
 
-        {data.status === 'NEW' && (
-          <TouchableOpacity onPress={handleMarkLost} style={styles.lostBtn} activeOpacity={0.75}>
-            <AppText style={styles.lostBtnText}>Mark as Lost</AppText>
+        {/* Mark as Lost */}
+        {data.status === 'NEW' && !opportunity && (
+          <TouchableOpacity onPress={handleMarkLost} style={st.lostBtn} activeOpacity={0.75}>
+            <AppText style={st.lostBtnText}>Mark as Lost</AppText>
           </TouchableOpacity>
         )}
+
+        <View style={{ height: 20 }} />
       </ScrollView>
 
-      <FollowUpModal
-        visible={followUpModal}
-        onClose={() => setFollowUpModal(false)}
-        onSubmit={(d) => followUpMutation.mutate(d)}
-        loading={followUpMutation.isPending}
-      />
-
-      <QualifyModal
-        visible={qualifyModal}
-        onClose={() => setQualifyModal(false)}
-        onSubmit={(d) => qualifyMutation.mutate(d)}
-        loading={qualifyMutation.isPending}
-      />
+      <FollowUpModal visible={followUpModal} onClose={() => setFollowUpModal(false)}
+        onSubmit={(d) => followUpMutation.mutate(d)} loading={followUpMutation.isPending} />
+      <QualifyModal visible={qualifyModal} onClose={() => setQualifyModal(false)}
+        onSubmit={(d) => qualifyMutation.mutate(d)} loading={qualifyMutation.isPending} />
     </Screen>
   );
 }
 
-const styles = StyleSheet.create({
-  navBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingBottom: 12,
-    gap: 10,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
+const st = StyleSheet.create({
+  navBar: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingBottom: 12, gap: 10, borderBottomWidth: StyleSheet.hairlineWidth },
   backBtn: { width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
   navCenter: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10 },
   navAvatar: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
   navAvatarText: { fontSize: 13, fontFamily: 'Inter-Bold', color: '#FFF' },
   navName: { fontSize: 15, fontFamily: 'Inter-SemiBold' },
   navCompany: { fontSize: 12, fontFamily: 'Inter-Regular' },
-  moreBtn: { width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  statusPill: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20 },
   scroll: { paddingBottom: 40 },
   errorCenter: { flex: 1, alignItems: 'center', justifyContent: 'center' },
 
@@ -466,22 +456,20 @@ const styles = StyleSheet.create({
   dealCard: { marginHorizontal: 16, borderRadius: 16, padding: 20, flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 12 },
   dealCardLabel: { fontSize: 10, fontFamily: 'Inter-SemiBold', color: 'rgba(255,255,255,0.55)', letterSpacing: 1, marginBottom: 6 },
   dealCardValue: { fontSize: 30, lineHeight: 36, fontFamily: 'Inter-Bold', color: '#FFFFFF' },
-  statusPill: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, flexDirection: 'row', alignItems: 'center', gap: 4 },
-  statusPillText: { fontSize: 12, fontFamily: 'Inter-SemiBold' },
+  oppStagePill: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, flexDirection: 'row', alignItems: 'center', gap: 4 },
 
   section: { marginHorizontal: 16, borderRadius: 16, borderWidth: 1, padding: 16, marginBottom: 12 },
-  sectionTitle: { fontSize: 16, fontFamily: 'Inter-SemiBold' },
+  sectionTitle: { fontSize: 15, fontFamily: 'Inter-SemiBold', marginBottom: 12 },
 
-  contactRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: '#E2E8F0' },
-  contactIcon: { width: 32, height: 32, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
-  contactLabel: { fontSize: 13, fontFamily: 'Inter-Regular' },
-  contactValue: { fontSize: 13, fontFamily: 'Inter-Medium', textAlign: 'right', flex: 1 },
+  detailRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, paddingVertical: 8 },
+  detailIcon: { width: 30, height: 30, borderRadius: 8, alignItems: 'center', justifyContent: 'center', marginTop: 2 },
+  detailLabel: { fontSize: 11, fontFamily: 'Inter-Medium', textTransform: 'uppercase', letterSpacing: 0.3 },
+  detailValue: { fontSize: 14, fontFamily: 'Inter-Regular', lineHeight: 20, marginTop: 1 },
+
+  infoText: { fontSize: 14, fontFamily: 'Inter-Regular', lineHeight: 22 },
 
   nextActionCard: { flexDirection: 'row', alignItems: 'center', padding: 14, borderRadius: 12, gap: 12 },
   nextActionIcon: { width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
-  nextActionTitle: { fontSize: 14, fontFamily: 'Inter-SemiBold' },
-  nextActionSub: { fontSize: 12, fontFamily: 'Inter-Regular', marginTop: 2 },
-  notesText: { fontSize: 14, fontFamily: 'Inter-Regular', lineHeight: 22 },
 
   lostBtn: { marginHorizontal: 16, marginTop: 4, paddingVertical: 14, alignItems: 'center' },
   lostBtnText: { fontSize: 14, fontFamily: 'Inter-SemiBold', color: '#DC2626' },
