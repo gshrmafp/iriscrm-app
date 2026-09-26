@@ -5,11 +5,6 @@ import {
   StyleSheet,
   TouchableOpacity,
   Alert,
-  Modal,
-  TextInput,
-  KeyboardAvoidingView,
-  Keyboard,
-  Platform,
   Linking,
 } from 'react-native';
 import { RouteProp, useRoute, useNavigation } from '@react-navigation/native';
@@ -17,9 +12,9 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
-  Phone, Mail, CalendarDays, MapPin, MoreHorizontal,
-  ChevronLeft, ChevronRight, Zap, Building2, User,
-  MessageSquare, FileText, Clock, Tag,
+  Phone, Mail, CalendarDays, MapPin,
+  ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Zap, Building2, User,
+  Clock, Tag, Users, Check,
 } from 'lucide-react-native';
 import { useTheme } from '@/design-system';
 import { Screen } from '@/components/common/Screen';
@@ -27,8 +22,11 @@ import { AppText } from '@/components/common/AppText';
 import { AppButton } from '@/components/common/AppButton';
 import { Loader } from '@/components/feedback/Loader';
 import { SalesStackParamList } from '@/features/sales/navigation/types';
-import { leadsApi } from '@/services/api/leads.api';
+import { leadsApi, type FollowUp, type LeadMeeting } from '@/services/api/leads.api';
 import { DARK_NAVY } from '@/constants/brandColors';
+import { useSilentLocationCapture } from '@/hooks/useSilentLocationCapture';
+import { FollowUpModal, MeetingModal } from '@/features/sales/leads/components/FollowUpMeetingModals';
+import { LoggedFollowUpCard, LoggedMeetingCard } from '@/features/sales/leads/components/LoggedActivityCards';
 
 type RouteProps = RouteProp<SalesStackParamList, 'LeadDetail'>;
 type Nav = NativeStackNavigationProp<SalesStackParamList>;
@@ -51,21 +49,12 @@ const STATUS_INFO: Record<string, { label: string; bg: string; color: string }> 
 };
 
 const OPP_STAGE_INFO: Record<string, { label: string; bg: string; color: string }> = {
-  NEW:         { label: 'New Visit',   bg: '#DBEAFE', color: '#1D4ED8' },
-  CONTACTED:   { label: 'Contacted',   bg: '#E9D5FF', color: '#7C3AED' },
-  QUALIFIED:   { label: 'Qualified',   bg: '#D1FAE5', color: '#065F46' },
-  QUOTED:      { label: 'Quotation',   bg: '#FEF3C7', color: '#D97706' },
-  NEGOTIATION: { label: 'Follow-ups',  bg: '#FFEDD5', color: '#C2410C' },
-  MEETING:     { label: 'Meeting',     bg: '#E0E7FF', color: '#4338CA' },
-  WON:         { label: 'PO',          bg: '#DCFCE7', color: '#15803D' },
-  LOST:        { label: 'Lost',        bg: '#FEE2E2', color: '#991B1B' },
+  QUOTATION:      { label: 'Quotation',      bg: '#FEF3C7', color: '#D97706' },
+  FOLLOWUP:       { label: 'Follow-up',      bg: '#FFEDD5', color: '#C2410C' },
+  MEETING:        { label: 'Meeting',        bg: '#E0E7FF', color: '#4338CA' },
+  PURCHASE_ORDER: { label: 'Purchase Order', bg: '#DCFCE7', color: '#15803D' },
+  LOST:           { label: 'Lost',           bg: '#FEE2E2', color: '#991B1B' },
 };
-
-const DEAL_TYPES = [
-  { label: 'Installation', value: 'INSTALLATION' },
-  { label: 'AMC', value: 'AMC' },
-  { label: 'Product', value: 'PRODUCT' },
-];
 
 function formatCurrency(val: string | number): string {
   const num = typeof val === 'string' ? Number(val) : val;
@@ -73,93 +62,52 @@ function formatCurrency(val: string | number): string {
   return `₹${num.toLocaleString('en-IN')}`;
 }
 
-function useKeyboardVisible() {
-  const [visible, setVisible] = useState(false);
-  useEffect(() => {
-    const showEvent = Platform.OS === 'android' ? 'keyboardDidShow' : 'keyboardWillShow';
-    const hideEvent = Platform.OS === 'android' ? 'keyboardDidHide' : 'keyboardWillHide';
-    const showSub = Keyboard.addListener(showEvent, () => setVisible(true));
-    const hideSub = Keyboard.addListener(hideEvent, () => setVisible(false));
-    return () => { showSub.remove(); hideSub.remove(); };
-  }, []);
-  return visible;
+function formatDate(val?: string | null): string {
+  if (!val) return '—';
+  return new Date(val).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
-function QualifyModal({ visible, onClose, onSubmit, loading }: {
-  visible: boolean; onClose: () => void;
-  onSubmit: (data: { dealType: string; value: number }) => void; loading: boolean;
-}) {
-  const theme = useTheme();
-  const insets = useSafeAreaInsets();
-  const keyboardVisible = useKeyboardVisible();
-  const [dealType, setDealType] = useState('INSTALLATION');
-  const [value, setValue] = useState('');
-  return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <KeyboardAvoidingView style={st.modalOverlay} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-        <View style={[st.modalSheet, { backgroundColor: theme.colors.surface, paddingBottom: 20 + (keyboardVisible ? 0 : insets.bottom) }]}>
-          <View style={[st.modalHandle, { backgroundColor: theme.colors.border }]} />
-          <AppText style={st.modalTitle} color={theme.colors.text}>Qualify into an opportunity</AppText>
-          <View style={st.channelRow}>
-            {DEAL_TYPES.map(t => (
-              <TouchableOpacity key={t.value} onPress={() => setDealType(t.value)}
-                style={[st.channelChip, { backgroundColor: dealType === t.value ? theme.colors.primary : theme.colors.surfaceAlt }]}>
-                <AppText style={{ fontSize: 12, fontFamily: 'Inter-Medium', color: dealType === t.value ? '#FFF' : theme.colors.textSecondary }}>{t.label}</AppText>
-              </TouchableOpacity>
-            ))}
-          </View>
-          <TextInput value={value} onChangeText={setValue} placeholder="Deal value (₹)" placeholderTextColor={theme.colors.textMuted}
-            keyboardType="numeric" style={[st.noteInput, { backgroundColor: theme.colors.surfaceAlt, color: theme.colors.text, minHeight: 48 }]} />
-          <View style={st.modalActions}>
-            <TouchableOpacity onPress={onClose} style={[st.cancelBtn, { borderColor: theme.colors.border }]}>
-              <AppText style={{ fontSize: 14, fontFamily: 'Inter-Medium', color: theme.colors.textSecondary }}>Cancel</AppText>
-            </TouchableOpacity>
-            <AppButton label="Create opportunity" onPress={() => { const num = Number(value); if (dealType && num > 0) onSubmit({ dealType, value: num }); }}
-              loading={loading} style={{ flex: 1 }} />
-          </View>
-        </View>
-      </KeyboardAvoidingView>
-    </Modal>
-  );
+function formatDateTime(val?: string | null): string {
+  if (!val) return '';
+  return new Date(val).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
 }
 
-function FollowUpModal({ visible, onClose, onSubmit, loading }: {
-  visible: boolean; onClose: () => void;
-  onSubmit: (data: { note: string; channel: string }) => void; loading: boolean;
-}) {
-  const theme = useTheme();
-  const insets = useSafeAreaInsets();
-  const keyboardVisible = useKeyboardVisible();
-  const [note, setNote] = useState('');
-  const [channel, setChannel] = useState('call');
-  const channels = ['call', 'email', 'meeting', 'visit'];
-  return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <KeyboardAvoidingView style={st.modalOverlay} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-        <View style={[st.modalSheet, { backgroundColor: theme.colors.surface, paddingBottom: 20 + (keyboardVisible ? 0 : insets.bottom) }]}>
-          <View style={[st.modalHandle, { backgroundColor: theme.colors.border }]} />
-          <AppText style={st.modalTitle} color={theme.colors.text}>Log Follow-up</AppText>
-          <View style={st.channelRow}>
-            {channels.map(c => (
-              <TouchableOpacity key={c} onPress={() => setChannel(c)}
-                style={[st.channelChip, { backgroundColor: channel === c ? theme.colors.primary : theme.colors.surfaceAlt }]}>
-                <AppText style={{ fontSize: 12, fontFamily: 'Inter-Medium', color: channel === c ? '#FFF' : theme.colors.textSecondary, textTransform: 'capitalize' }}>{c}</AppText>
-              </TouchableOpacity>
-            ))}
-          </View>
-          <TextInput value={note} onChangeText={setNote} placeholder="Notes from this interaction…" placeholderTextColor={theme.colors.textMuted}
-            multiline style={[st.noteInput, { backgroundColor: theme.colors.surfaceAlt, color: theme.colors.text }]} />
-          <View style={st.modalActions}>
-            <TouchableOpacity onPress={onClose} style={[st.cancelBtn, { borderColor: theme.colors.border }]}>
-              <AppText style={{ fontSize: 14, fontFamily: 'Inter-Medium', color: theme.colors.textSecondary }}>Cancel</AppText>
-            </TouchableOpacity>
-            <AppButton label="Save" onPress={() => note.trim() && onSubmit({ note: note.trim(), channel })} loading={loading} style={{ flex: 1 }} />
-          </View>
-        </View>
-      </KeyboardAvoidingView>
-    </Modal>
-  );
+const QUALIFICATION_LABELS: Record<string, string> = {
+  NOT_QUALIFIED: 'Not Qualified',
+  FUTURE_POTENTIAL: 'Future Potential',
+  REQUIREMENT_IDENTIFIED: 'Requirement Identified',
+};
+
+// --- Lead Journey ---
+// Mirrors opportunities.api.ts's FORWARD_STAGE chain (QUOTATION -> FOLLOWUP ->
+// MEETING -> PURCHASE_ORDER) as a flat, index-comparable order so the
+// accordion can mark a stage "reached" once the opportunity's current stage
+// is at or past it. LOST isn't part of this forward chain (mirrors
+// FORWARD_STAGE, where LOST has no forward target of its own).
+const STAGE_ORDER = ['QUOTATION', 'FOLLOWUP', 'MEETING', 'PURCHASE_ORDER'] as const;
+
+function stageReached(currentStage: string | undefined, target: typeof STAGE_ORDER[number]): boolean {
+  if (!currentStage) return false;
+  const curIdx = STAGE_ORDER.indexOf(currentStage as typeof STAGE_ORDER[number]);
+  const targetIdx = STAGE_ORDER.indexOf(target);
+  return curIdx !== -1 && curIdx >= targetIdx;
 }
+
+// A stage counts as "reached" if the opportunity's durable stage-history audit
+// trail ever recorded a real transition into it (survives the opportunity
+// later moving to LOST), OR the opportunity is currently at/past it and hasn't
+// been lost. Mirrors the web app's LeadJourney logic exactly.
+function stageCompleted(
+  opportunity: { stage: string; stageHistory?: { toStage: string }[] } | undefined,
+  target: typeof STAGE_ORDER[number],
+): boolean {
+  if (!opportunity) return false;
+  const everReached = opportunity.stageHistory?.some((h) => h.toStage === target) ?? false;
+  if (everReached) return true;
+  return stageReached(opportunity.stage, target) && opportunity.stage !== 'LOST';
+}
+
+type JourneyStageKey = 'NEW_LEAD' | 'CONTACTED' | 'QUALIFIED' | 'QUOTATION' | 'FOLLOWUP' | 'MEETING' | 'PURCHASE_ORDER';
 
 // --- Detail Row ---
 function DetailRow({ Icon, label, value, onPress }: { Icon: React.ComponentType<any>; label: string; value: string; onPress?: () => void }) {
@@ -189,6 +137,82 @@ function InfoBlock({ title, text, theme }: { title: string; text: string; theme:
   );
 }
 
+// --- Journey field row (compact label/value, skipped entirely when empty) ---
+function JourneyField({ label, value, theme }: { label: string; value?: string | null; theme: any }) {
+  if (!value) return null;
+  return (
+    <View style={st.journeyFieldRow}>
+      <AppText style={st.detailLabel} color={theme.colors.textMuted}>{label}</AppText>
+      <AppText style={st.detailValue} color={theme.colors.text}>{value}</AppText>
+    </View>
+  );
+}
+
+// Logged follow-up/meeting cards live in a shared component — reused by
+// LeadCreateScreen's wizard so a newly-logged entry shows up there instantly too.
+
+// --- Lead Journey accordion section ---
+// A simple custom accordion: no animation library, just a boolean per
+// section (tracked by the parent as a Set of expanded keys) toggling whether
+// the content View renders at all. Every section carries its own inline Log
+// Follow-up / Log Meeting buttons wired to the same modals used elsewhere on
+// this screen, disabled once the lead/opportunity has reached a terminal state.
+function JourneySection({
+  theme, title, completed, expanded, onToggle, onLogFollowUp, onLogMeeting, terminal, hideActions, children,
+}: {
+  theme: any;
+  title: string;
+  completed: boolean;
+  expanded: boolean;
+  onToggle: () => void;
+  onLogFollowUp: () => void;
+  onLogMeeting: () => void;
+  terminal: boolean;
+  // Site Visit and Contacted are one-time intake steps — once completed,
+  // they're locked history, not an ongoing stage a follow-up/meeting could
+  // still be "at." Logging remains available on every later stage.
+  hideActions?: boolean;
+  children?: React.ReactNode;
+}) {
+  return (
+    <View style={[st.journeyItem, { borderColor: theme.colors.border }]}>
+      <TouchableOpacity onPress={onToggle} style={st.journeyHeader} activeOpacity={0.7}>
+        <View style={st.journeyHeaderLeft}>
+          <View style={[st.journeyStatusDot, { backgroundColor: completed ? '#059669' : theme.colors.surfaceAlt, borderColor: completed ? '#059669' : theme.colors.border }]}>
+            {completed ? <Check size={12} color="#FFF" strokeWidth={3} /> : null}
+          </View>
+          <AppText style={st.journeyTitle} color={theme.colors.text}>{title}</AppText>
+        </View>
+        {expanded ? (
+          <ChevronUp size={18} color={theme.colors.textMuted} strokeWidth={2} />
+        ) : (
+          <ChevronDown size={18} color={theme.colors.textMuted} strokeWidth={2} />
+        )}
+      </TouchableOpacity>
+
+      {expanded && (
+        <View style={st.journeyBody}>
+          {children}
+          {!hideActions && (
+            <View style={st.journeyActionsRow}>
+              <TouchableOpacity onPress={onLogFollowUp} disabled={terminal}
+                style={[st.journeyActionBtn, { borderColor: theme.colors.border, opacity: terminal ? 0.4 : 1 }]} activeOpacity={0.75}>
+                <CalendarDays size={14} color={theme.colors.primary} strokeWidth={2} />
+                <AppText style={st.journeyActionLabel} color={theme.colors.primary}>Log Follow-up</AppText>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={onLogMeeting} disabled={terminal}
+                style={[st.journeyActionBtn, { borderColor: theme.colors.border, opacity: terminal ? 0.4 : 1 }]} activeOpacity={0.75}>
+                <Users size={14} color={theme.colors.primary} strokeWidth={2} />
+                <AppText style={st.journeyActionLabel} color={theme.colors.primary}>Log Meeting</AppText>
+              </TouchableOpacity>
+            </View>
+          )}
+        </View>
+      )}
+    </View>
+  );
+}
+
 export function LeadDetailScreen() {
   const theme = useTheme();
   const route = useRoute<RouteProps>();
@@ -196,7 +220,22 @@ export function LeadDetailScreen() {
   const queryClient = useQueryClient();
   const insets = useSafeAreaInsets();
   const [followUpModal, setFollowUpModal] = useState(false);
-  const [qualifyModal, setQualifyModal] = useState(false);
+  const [meetingModal, setMeetingModal] = useState(false);
+  const { location: meetingLocation, capture: captureMeetingLocation, reset: resetMeetingLocation } = useSilentLocationCapture();
+
+  // Lead Journey accordion — every section is open by default; tracking
+  // COLLAPSED keys (rather than expanded ones) means a section that only
+  // starts rendering later (e.g. Quotation, once the lead is qualified) is
+  // open by default too, since it was never added to this set.
+  const [collapsedKeys, setCollapsedKeys] = useState<Set<JourneyStageKey>>(new Set());
+  const toggleJourneySection = (key: JourneyStageKey) => {
+    setCollapsedKeys(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  };
+  const collapseAll = (keys: JourneyStageKey[]) => setCollapsedKeys(new Set(keys));
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['lead', route.params.id],
@@ -204,45 +243,60 @@ export function LeadDetailScreen() {
     refetchOnMount: 'always',
   });
 
+  // The "current" stage — the last completed one, right before whatever's
+  // still pending — is the ONLY section that carries the Log Follow-up/Meeting
+  // actions (every step behind it is locked history, every step ahead of it
+  // hasn't been reached yet).
+  const currentJourneyKey: JourneyStageKey = (() => {
+    if (data?.opportunity) {
+      // FOLLOWUP/MEETING aren't their own visible sections (folded into
+      // Quotation) — only PURCHASE_ORDER gets its own row.
+      return data.opportunity.stage === 'PURCHASE_ORDER' ? 'PURCHASE_ORDER' : 'QUOTATION';
+    }
+    if (data?.step3CompletedAt) return 'QUALIFIED';
+    if (data?.step2CompletedAt) return 'CONTACTED';
+    return 'NEW_LEAD';
+  })();
+
+  // Logging a follow-up or meeting can auto-advance the linked opportunity's
+  // stage on the backend (QUOTATION -> FOLLOWUP / FOLLOWUP,QUOTATION ->
+  // MEETING) — refetch both the lead and the opportunity so the UI reflects it.
+  const invalidateAfterLogging = () => {
+    queryClient.invalidateQueries({ queryKey: ['lead', route.params.id] });
+    queryClient.invalidateQueries({ queryKey: ['leads'] });
+    if (data?.opportunity?.id) {
+      queryClient.invalidateQueries({ queryKey: ['opportunity', data.opportunity.id] });
+    }
+  };
+
   const followUpMutation = useMutation({
     mutationFn: (body: { note: string; channel: string }) => leadsApi.addFollowUp(route.params.id, body),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['lead', route.params.id] });
-      queryClient.invalidateQueries({ queryKey: ['leads'] });
+      invalidateAfterLogging();
       setFollowUpModal(false);
     },
     onError: () => Alert.alert('Error', 'Could not save follow-up.'),
   });
 
-  const lostMutation = useMutation({
-    mutationFn: (reason: string) => leadsApi.markLost(route.params.id, reason),
+  // Silently capture GPS in the background as soon as the Log Meeting modal
+  // opens (same permission/coords flow as LeadCreateScreen's Step 1), so it's
+  // usually resolved by the time the user finishes typing the note.
+  useEffect(() => {
+    if (meetingModal) {
+      resetMeetingLocation();
+      void captureMeetingLocation();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [meetingModal]);
+
+  const meetingMutation = useMutation({
+    mutationFn: (body: { note: string }) => leadsApi.addMeeting(route.params.id, { note: body.note, ...meetingLocation }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['leads'] });
-      navigation.goBack();
+      invalidateAfterLogging();
+      setMeetingModal(false);
     },
-    onError: () => Alert.alert('Error', 'Could not update lead status.'),
+    onError: () => Alert.alert('Error', 'Could not save meeting.'),
   });
-
-  const qualifyMutation = useMutation({
-    mutationFn: (body: { dealType: string; value: number }) => leadsApi.qualify(route.params.id, body),
-    onSuccess: res => {
-      queryClient.invalidateQueries({ queryKey: ['lead', route.params.id] });
-      queryClient.invalidateQueries({ queryKey: ['leads'] });
-      setQualifyModal(false);
-      navigation.replace('OpportunityDetail', { id: (res.data as any).id });
-    },
-    onError: () => Alert.alert('Error', 'Could not qualify this lead.'),
-  });
-
-  const handleMarkLost = () => {
-    Alert.alert('Mark as Lost', 'Select a reason', [
-      { text: 'Price', onPress: () => lostMutation.mutate('price') },
-      { text: 'Competitor', onPress: () => lostMutation.mutate('competitor') },
-      { text: 'No Budget', onPress: () => lostMutation.mutate('no_budget') },
-      { text: 'No Response', onPress: () => lostMutation.mutate('no_response') },
-      { text: 'Cancel', style: 'cancel' },
-    ]);
-  };
 
   if (isLoading) return <Screen edges={['left', 'right', 'bottom']}><Loader /></Screen>;
   if (isError || !data) {
@@ -260,12 +314,26 @@ export function LeadDetailScreen() {
   const ini = displayName.split(' ').slice(0, 2).map((w: string) => w[0] ?? '').join('').toUpperCase() || '?';
   const avatarBg = avatarColor(displayName);
   const opportunity = data.opportunity;
-  const lastFollowUp = data.followUps?.[0];
+  const followUps = data.followUps ?? [];
+  const meetings = data.meetings ?? [];
+  // Follow-up and Meeting aren't their own Journey sections (see below) — a
+  // follow-up/meeting logged while the opportunity had already internally
+  // progressed to FOLLOWUP/MEETING still folds into the Quotation section's
+  // list, since all of it is "activity during the deal."
+  const QUOTATION_ALIASES = ['QUOTATION', 'FOLLOWUP', 'MEETING'];
+  const followUpsAt = (stage: string) => followUps.filter(f =>
+    stage === 'QUOTATION' ? QUOTATION_ALIASES.includes(f.loggedAtStage ?? '') : f.loggedAtStage === stage);
+  const meetingsAt = (stage: string) => meetings.filter(m =>
+    stage === 'QUOTATION' ? QUOTATION_ALIASES.includes(m.loggedAtStage ?? '') : m.loggedAtStage === stage);
 
   // Status badge: if opportunity exists use its stage, otherwise use lead status
   const badge = opportunity
     ? OPP_STAGE_INFO[opportunity.stage] ?? { label: opportunity.stage, bg: theme.colors.surfaceAlt, color: theme.colors.textMuted }
     : STATUS_INFO[data.status] ?? { label: data.status, bg: theme.colors.surfaceAlt, color: theme.colors.textMuted };
+
+  // Follow-up/Meeting logging is always available except in a terminal state:
+  // the lead itself is Lost, or its opportunity has closed (Purchase Order or Lost).
+  const terminal = data.status === 'LOST' || opportunity?.stage === 'PURCHASE_ORDER' || opportunity?.stage === 'LOST';
 
   const createdDate = new Date(data.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
 
@@ -297,7 +365,6 @@ export function LeadDetailScreen() {
           {[
             { Icon: Phone, label: 'Call', onPress: data.contactPhone ? () => Linking.openURL(`tel:${data.contactPhone}`).catch(() => {}) : undefined },
             { Icon: Mail, label: 'Email', onPress: data.contactEmail ? () => Linking.openURL(`mailto:${data.contactEmail}`).catch(() => {}) : undefined },
-            { Icon: CalendarDays, label: 'Follow up', onPress: () => setFollowUpModal(true) },
           ].map(a => (
             <TouchableOpacity key={a.label} onPress={a.onPress} disabled={!a.onPress}
               style={[st.actionCard, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border, opacity: a.onPress ? 1 : 0.4 }]} activeOpacity={0.75}>
@@ -324,13 +391,22 @@ export function LeadDetailScreen() {
               <ChevronRight size={14} color="#FFFFFF" strokeWidth={2} />
             </View>
           </TouchableOpacity>
+        ) : data.status === 'NEW' && (data.currentStep ?? 3) < 3 ? (
+          <View style={[st.dealCard, { backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border }]}>
+            <View style={{ flex: 1 }}>
+              <AppText style={{ fontSize: 13, fontFamily: 'Inter-SemiBold' }} color={theme.colors.text}>Incomplete — Step {data.currentStep ?? 1}/3</AppText>
+              <AppText style={{ fontSize: 12, fontFamily: 'Inter-Regular', marginTop: 2 }} color={theme.colors.textMuted}>Finish the wizard to qualify this lead</AppText>
+            </View>
+            <AppButton label="Continue" size="sm" onPress={() => navigation.navigate('LeadCreate', { resumeLeadId: data.id })} />
+          </View>
         ) : data.status === 'NEW' ? (
           <View style={[st.dealCard, { backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border }]}>
             <View style={{ flex: 1 }}>
               <AppText style={{ fontSize: 13, fontFamily: 'Inter-SemiBold' }} color={theme.colors.text}>Not yet qualified</AppText>
-              <AppText style={{ fontSize: 12, fontFamily: 'Inter-Regular', marginTop: 2 }} color={theme.colors.textMuted}>Qualify to create an opportunity</AppText>
+              <AppText style={{ fontSize: 12, fontFamily: 'Inter-Regular', marginTop: 2 }} color={theme.colors.textMuted}>
+                {data.qualificationPath === 'FUTURE_POTENTIAL' ? 'Follow-up scheduled from the qualification step' : 'No opportunity created for this lead'}
+              </AppText>
             </View>
-            <AppButton label="Qualify" size="sm" onPress={() => setQualifyModal(true)} />
           </View>
         ) : (
           <View style={[st.dealCard, { backgroundColor: DARK_NAVY }]}>
@@ -349,7 +425,6 @@ export function LeadDetailScreen() {
           <AppText style={st.sectionTitle} color={theme.colors.text}>Lead Info</AppText>
           <DetailRow Icon={Tag} label="Reference" value={data.refNo} />
           <DetailRow Icon={Building2} label="Company" value={company || '—'} />
-          {data.source && <DetailRow Icon={FileText} label="Source" value={data.source} />}
           <DetailRow Icon={Clock} label="Created" value={createdDate} />
           {data.owner && <DetailRow Icon={User} label="Owner" value={data.owner.name} />}
         </View>
@@ -367,7 +442,6 @@ export function LeadDetailScreen() {
               <DetailRow Icon={Mail} label="Email" value={data.contactEmail}
                 onPress={() => Linking.openURL(`mailto:${data.contactEmail}`).catch(() => {})} />
             )}
-            {data.address && <DetailRow Icon={MapPin} label="Address" value={data.address} />}
           </View>
         )}
 
@@ -385,53 +459,95 @@ export function LeadDetailScreen() {
         {/* Discussion Note */}
         {data.discussionNote && <InfoBlock title="Discussion Note" text={data.discussionNote} theme={theme} />}
 
-        {/* Notes */}
-        {data.notes && <InfoBlock title="Notes" text={data.notes} theme={theme} />}
-
-        {/* Next best action */}
-        {lastFollowUp && (
-          <View style={[st.section, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
-            <AppText style={st.sectionTitle} color={theme.colors.text}>Last Follow-up</AppText>
-            <TouchableOpacity style={[st.nextActionCard, { backgroundColor: theme.colors.primaryLight }]} activeOpacity={0.75}
-              onPress={() => setFollowUpModal(true)}>
-              <View style={[st.nextActionIcon, { backgroundColor: theme.colors.primary }]}>
-                <Zap size={18} color="#FFF" strokeWidth={2} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <AppText style={{ fontSize: 14, fontFamily: 'Inter-SemiBold' }} color={theme.colors.text}>{lastFollowUp.note}</AppText>
-                <AppText style={{ fontSize: 12, fontFamily: 'Inter-Regular', marginTop: 2 }} color={theme.colors.textMuted}>
-                  {lastFollowUp.channel ? `${lastFollowUp.channel} · ` : ''}
-                  {lastFollowUp.createdAt ? new Date(lastFollowUp.createdAt).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : ''}
-                </AppText>
-              </View>
-              <ChevronRight size={18} color={theme.colors.primary} strokeWidth={2} />
-            </TouchableOpacity>
+        {/* Lead Journey — one accordion section per named stage, each showing
+            what happened at that stage plus any follow-up/meeting logged
+            while it was active (grouped by loggedAtStage), with its own
+            inline Log Follow-up / Log Meeting shortcuts. Replaces the old
+            flat "Last Follow-up" / "Meetings" / "Qualification" sections —
+            all of that content now lives inside the relevant stage below. */}
+        <View style={[st.section, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
+          <View style={st.journeyHeaderRow}>
+            <AppText style={st.sectionTitle} color={theme.colors.text}>Lead Journey</AppText>
+            <View style={st.journeyHeaderActions}>
+              <TouchableOpacity onPress={() => setCollapsedKeys(new Set())}>
+                <AppText style={st.collapseAllLabel} color={theme.colors.primary}>Expand all</AppText>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => collapseAll(opportunity
+                  ? ['NEW_LEAD', 'CONTACTED', 'QUALIFIED', 'QUOTATION', 'PURCHASE_ORDER']
+                  : ['NEW_LEAD', 'CONTACTED', 'QUALIFIED'])}
+              >
+                <AppText style={st.collapseAllLabel} color={theme.colors.primary}>Collapse all</AppText>
+              </TouchableOpacity>
+            </View>
           </View>
-        )}
 
-        {/* Qualification path */}
-        {data.qualificationPath && (
-          <View style={[st.section, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
-            <AppText style={st.sectionTitle} color={theme.colors.text}>Qualification</AppText>
-            <DetailRow Icon={FileText} label="Path" value={data.qualificationPath.replace(/_/g, ' ')} />
-            {data.lostReason && <DetailRow Icon={FileText} label="Lost Reason" value={data.lostReason} />}
-          </View>
-        )}
+          <JourneySection theme={theme} title="New Lead" completed={!!data.step1CompletedAt}
+            expanded={!collapsedKeys.has('NEW_LEAD')} onToggle={() => toggleJourneySection('NEW_LEAD')}
+            onLogFollowUp={() => setFollowUpModal(true)} onLogMeeting={() => setMeetingModal(true)} terminal={terminal}
+            hideActions={currentJourneyKey !== 'NEW_LEAD'}>
+            <JourneyField label="Company" value={data.companyName} theme={theme} />
+            <JourneyField label="Remarks" value={data.remarks} theme={theme} />
+            <JourneyField label="Visit Location" value={data.visitLocation} theme={theme} />
+            {followUpsAt('NEW_LEAD').map(f => <View key={f.id} style={st.journeyItemSpacer}><LoggedFollowUpCard item={f} theme={theme} /></View>)}
+            {meetingsAt('NEW_LEAD').map(m => <View key={m.id} style={st.journeyItemSpacer}><LoggedMeetingCard item={m} theme={theme} /></View>)}
+          </JourneySection>
 
-        {/* Mark as Lost */}
-        {data.status === 'NEW' && !opportunity && (
-          <TouchableOpacity onPress={handleMarkLost} style={st.lostBtn} activeOpacity={0.75}>
-            <AppText style={st.lostBtnText}>Mark as Lost</AppText>
-          </TouchableOpacity>
-        )}
+          <JourneySection theme={theme} title="Contacted" completed={!!data.step2CompletedAt}
+            expanded={!collapsedKeys.has('CONTACTED')} onToggle={() => toggleJourneySection('CONTACTED')}
+            onLogFollowUp={() => setFollowUpModal(true)} onLogMeeting={() => setMeetingModal(true)} terminal={terminal}
+            hideActions={currentJourneyKey !== 'CONTACTED'}>
+            <JourneyField label="Contact Name" value={data.contactName} theme={theme} />
+            <JourneyField label="Phone" value={data.contactPhone} theme={theme} />
+            <JourneyField label="Email" value={data.contactEmail} theme={theme} />
+            <JourneyField label="Discussion Note" value={data.discussionNote} theme={theme} />
+            {followUpsAt('CONTACTED').map(f => <View key={f.id} style={st.journeyItemSpacer}><LoggedFollowUpCard item={f} theme={theme} /></View>)}
+            {meetingsAt('CONTACTED').map(m => <View key={m.id} style={st.journeyItemSpacer}><LoggedMeetingCard item={m} theme={theme} /></View>)}
+          </JourneySection>
+
+          <JourneySection theme={theme} title="Qualified" completed={!!data.step3CompletedAt}
+            expanded={!collapsedKeys.has('QUALIFIED')} onToggle={() => toggleJourneySection('QUALIFIED')}
+            onLogFollowUp={() => setFollowUpModal(true)} onLogMeeting={() => setMeetingModal(true)} terminal={terminal}
+            hideActions={currentJourneyKey !== 'QUALIFIED'}>
+            <JourneyField label="Path" value={data.qualificationPath ? QUALIFICATION_LABELS[data.qualificationPath] ?? data.qualificationPath.replace(/_/g, ' ') : undefined} theme={theme} />
+            <JourneyField label="Lost Reason" value={data.lostReason} theme={theme} />
+          </JourneySection>
+
+          {opportunity && (
+            <JourneySection theme={theme} title="Quotation" completed={stageCompleted(opportunity, 'QUOTATION')}
+              expanded={!collapsedKeys.has('QUOTATION')} onToggle={() => toggleJourneySection('QUOTATION')}
+              onLogFollowUp={() => setFollowUpModal(true)} onLogMeeting={() => setMeetingModal(true)} terminal={terminal}
+              hideActions={currentJourneyKey !== 'QUOTATION'}>
+              <JourneyField label="Quotation Ref" value={opportunity.initialQuotationRef} theme={theme} />
+              <JourneyField label="Quotation Date" value={opportunity.initialQuotationDate ? formatDate(opportunity.initialQuotationDate) : undefined} theme={theme} />
+              <JourneyField label="Quotation Amount" value={opportunity.initialQuotationAmount ? formatCurrency(opportunity.initialQuotationAmount) : undefined} theme={theme} />
+              {followUpsAt('QUOTATION').map(f => <View key={f.id} style={st.journeyItemSpacer}><LoggedFollowUpCard item={f} theme={theme} /></View>)}
+              {meetingsAt('QUOTATION').map(m => <View key={m.id} style={st.journeyItemSpacer}><LoggedMeetingCard item={m} theme={theme} /></View>)}
+            </JourneySection>
+          )}
+
+          {opportunity && (
+            <JourneySection theme={theme} title="Purchase Order" completed={stageCompleted(opportunity, 'PURCHASE_ORDER')}
+              expanded={!collapsedKeys.has('PURCHASE_ORDER')} onToggle={() => toggleJourneySection('PURCHASE_ORDER')}
+              onLogFollowUp={() => setFollowUpModal(true)} onLogMeeting={() => setMeetingModal(true)} terminal={terminal}
+              hideActions={currentJourneyKey !== 'PURCHASE_ORDER'}>
+              <JourneyField label="PO Number" value={opportunity.poNumber} theme={theme} />
+              <JourneyField label="PO Date" value={opportunity.poDate ? formatDate(opportunity.poDate) : undefined} theme={theme} />
+              <JourneyField label="PO Amount" value={opportunity.poAmount ? formatCurrency(opportunity.poAmount) : undefined} theme={theme} />
+              <JourneyField label="PO Remarks" value={opportunity.poRemarks} theme={theme} />
+              {followUpsAt('PURCHASE_ORDER').map(f => <View key={f.id} style={st.journeyItemSpacer}><LoggedFollowUpCard item={f} theme={theme} /></View>)}
+              {meetingsAt('PURCHASE_ORDER').map(m => <View key={m.id} style={st.journeyItemSpacer}><LoggedMeetingCard item={m} theme={theme} /></View>)}
+            </JourneySection>
+          )}
+        </View>
 
         <View style={{ height: 20 }} />
       </ScrollView>
 
       <FollowUpModal visible={followUpModal} onClose={() => setFollowUpModal(false)}
         onSubmit={(d) => followUpMutation.mutate(d)} loading={followUpMutation.isPending} />
-      <QualifyModal visible={qualifyModal} onClose={() => setQualifyModal(false)}
-        onSubmit={(d) => qualifyMutation.mutate(d)} loading={qualifyMutation.isPending} />
+      <MeetingModal visible={meetingModal} onClose={() => setMeetingModal(false)}
+        onSubmit={(d) => meetingMutation.mutate(d)} loading={meetingMutation.isPending} />
     </Screen>
   );
 }
@@ -460,6 +576,9 @@ const st = StyleSheet.create({
 
   section: { marginHorizontal: 16, borderRadius: 16, borderWidth: 1, padding: 16, marginBottom: 12 },
   sectionTitle: { fontSize: 15, fontFamily: 'Inter-SemiBold', marginBottom: 12 },
+  journeyHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 },
+  journeyHeaderActions: { flexDirection: 'row', gap: 14 },
+  collapseAllLabel: { fontSize: 13, fontFamily: 'Inter-Medium', marginBottom: 12 },
 
   detailRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, paddingVertical: 8 },
   detailIcon: { width: 30, height: 30, borderRadius: 8, alignItems: 'center', justifyContent: 'center', marginTop: 2 },
@@ -470,17 +589,20 @@ const st = StyleSheet.create({
 
   nextActionCard: { flexDirection: 'row', alignItems: 'center', padding: 14, borderRadius: 12, gap: 12 },
   nextActionIcon: { width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  loggedItemNote: { fontSize: 14, fontFamily: 'Inter-SemiBold' },
+  loggedItemMeta: { fontSize: 12, fontFamily: 'Inter-Regular', marginTop: 2 },
 
-  lostBtn: { marginHorizontal: 16, marginTop: 4, paddingVertical: 14, alignItems: 'center' },
-  lostBtnText: { fontSize: 14, fontFamily: 'Inter-SemiBold', color: '#DC2626' },
-
-  modalOverlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.45)' },
-  modalSheet: { padding: 20, borderTopLeftRadius: 24, borderTopRightRadius: 24 },
-  modalHandle: { width: 40, height: 4, borderRadius: 2, alignSelf: 'center', marginBottom: 18 },
-  modalTitle: { fontSize: 18, fontFamily: 'Inter-SemiBold', marginBottom: 16 },
-  channelRow: { flexDirection: 'row', gap: 8, marginBottom: 14 },
-  channelChip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20 },
-  noteInput: { borderRadius: 12, padding: 14, fontSize: 14, fontFamily: 'Inter-Regular', minHeight: 100, textAlignVertical: 'top', marginBottom: 16 },
-  modalActions: { flexDirection: 'row', gap: 10 },
-  cancelBtn: { flex: 1, borderWidth: 1, alignItems: 'center', justifyContent: 'center', borderRadius: 12, paddingVertical: 14 },
+  // --- Lead Journey accordion ---
+  journeyItem: { borderRadius: 12, borderWidth: 1, marginBottom: 10, overflow: 'hidden' },
+  journeyHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 12, paddingHorizontal: 14 },
+  journeyHeaderLeft: { flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 },
+  journeyStatusDot: { width: 22, height: 22, borderRadius: 11, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
+  journeyTitle: { fontSize: 14, fontFamily: 'Inter-SemiBold' },
+  journeyBody: { paddingHorizontal: 14, paddingBottom: 14 },
+  journeyFieldRow: { marginBottom: 8 },
+  journeyItemSpacer: { marginTop: 8 },
+  journeyEmptyText: { fontSize: 13, fontFamily: 'Inter-Regular', fontStyle: 'italic', marginBottom: 4 },
+  journeyActionsRow: { flexDirection: 'row', gap: 8, marginTop: 8 },
+  journeyActionBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, borderWidth: 1, borderRadius: 10, paddingVertical: 10 },
+  journeyActionLabel: { fontSize: 12, fontFamily: 'Inter-SemiBold' },
 });

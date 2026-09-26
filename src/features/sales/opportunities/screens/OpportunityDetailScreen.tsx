@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
-import { ScrollView, View, StyleSheet, TouchableOpacity, Alert, TextInput } from 'react-native';
+import { ScrollView, View, StyleSheet, TouchableOpacity, Alert, TextInput, Modal, Platform } from 'react-native';
 import { RouteProp, useRoute, useNavigation } from '@react-navigation/native';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
+import { Calendar } from 'lucide-react-native';
 import { useTheme } from '@/design-system';
 import { Screen } from '@/components/common/Screen';
 import { AppText } from '@/components/common/AppText';
@@ -17,24 +19,23 @@ import {
   isOpportunityClosed,
 } from '@/services/api/opportunities.api';
 import { DARK_NAVY } from '@/constants/brandColors';
+import { useSilentLocationCapture } from '@/hooks/useSilentLocationCapture';
 
 type RouteProps = RouteProp<SalesStackParamList, 'OpportunityDetail'>;
 
 const STAGE_LABEL: Record<OpportunityStage, string> = {
-  NEW: 'New',
-  CONTACTED: 'Contacted',
-  QUOTED: 'Quoted',
-  NEGOTIATION: 'Negotiation',
-  WON: 'Won',
+  QUOTATION: 'Quotation',
+  FOLLOWUP: 'Follow-up',
+  MEETING: 'Meeting',
+  PURCHASE_ORDER: 'Purchase Order',
   LOST: 'Lost',
 };
 
 const STAGE_STYLE: Record<OpportunityStage, { bg: string; color: string }> = {
-  NEW: { bg: '#EEF2FF', color: '#4338CA' },
-  CONTACTED: { bg: '#EEF2FF', color: '#4338CA' },
-  QUOTED: { bg: '#DBEAFE', color: '#1D4ED8' },
-  NEGOTIATION: { bg: '#FEF3C7', color: '#D97706' },
-  WON: { bg: '#D1FAE5', color: '#065F46' },
+  QUOTATION: { bg: '#FEF3C7', color: '#D97706' },
+  FOLLOWUP: { bg: '#FFEDD5', color: '#C2410C' },
+  MEETING: { bg: '#E0E7FF', color: '#4338CA' },
+  PURCHASE_ORDER: { bg: '#D1FAE5', color: '#065F46' },
   LOST: { bg: '#FEE2E2', color: '#991B1B' },
 };
 
@@ -65,6 +66,15 @@ export function OpportunityDetailScreen() {
   const [siteInput, setSiteInput] = useState('');
   const [showWinInput, setShowWinInput] = useState(false);
 
+  // Purchase Order capture — required by the win() endpoint now that a deal
+  // closes as PURCHASE_ORDER instead of a bare WON toggle.
+  const [poNumber, setPoNumber] = useState('');
+  const [poDate, setPoDate] = useState<Date | null>(null);
+  const [showPoDatePicker, setShowPoDatePicker] = useState(false);
+  const [poAmount, setPoAmount] = useState('');
+  const [poRemarks, setPoRemarks] = useState('');
+  const { location: poLocation, capture: capturePoLocation, reset: resetPoLocation } = useSilentLocationCapture();
+
   const { data, isLoading, isError } = useQuery({
     queryKey: ['opportunity', route.params.id],
     queryFn: () => opportunitiesApi.getOne(route.params.id).then(r => r.data),
@@ -89,14 +99,37 @@ export function OpportunityDetailScreen() {
   });
 
   const winMutation = useMutation({
-    mutationFn: (site?: string) => opportunitiesApi.win(route.params.id, { site: site || undefined }),
+    mutationFn: () => opportunitiesApi.win(route.params.id, {
+      poNumber: poNumber.trim(),
+      poDate: (poDate ?? new Date()).toISOString(),
+      poAmount: parseFloat(poAmount),
+      poRemarks: poRemarks.trim() || undefined,
+      poGpsLatitude: poLocation.gpsLatitude,
+      poGpsLongitude: poLocation.gpsLongitude,
+      poLocation: poLocation.visitLocation,
+      site: siteInput.trim() || undefined,
+    }),
     onSuccess: () => {
       invalidate();
       setShowWinInput(false);
-      Alert.alert('Won!', 'This opportunity has been marked as won.');
+      Alert.alert('Purchase Order Captured', 'This opportunity has been marked as won.');
     },
-    onError: () => Alert.alert('Error', 'Could not mark this opportunity won.'),
+    onError: (e: any) => Alert.alert('Error', e?.response?.data?.error?.message ?? 'Could not mark this opportunity won.'),
   });
+
+  const openWinForm = () => {
+    resetPoLocation();
+    void capturePoLocation();
+    setShowWinInput(true);
+  };
+
+  const submitWin = () => {
+    if (!poNumber.trim() || !poDate || !poAmount.trim() || isNaN(parseFloat(poAmount)) || parseFloat(poAmount) <= 0) {
+      Alert.alert('Required', 'Please fill in PO number, PO date and a valid PO amount.');
+      return;
+    }
+    winMutation.mutate();
+  };
 
   const handleMarkLost = () => {
     Alert.alert('Mark opportunity lost', 'Select a reason', [
@@ -161,16 +194,102 @@ export function OpportunityDetailScreen() {
             )}
             {canWin && !showWinInput && (
               <AppButton
-                label="Mark won"
+                label="Mark Won — Capture PO"
                 variant="secondary"
-                onPress={() => setShowWinInput(true)}
+                onPress={openWinForm}
                 fullWidth
                 style={{ marginBottom: 10 }}
               />
             )}
             {showWinInput && (
               <View style={[styles.winCard, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
-                <AppText style={{ fontSize: 13, fontFamily: 'Inter-SemiBold', marginBottom: 8 }} color={theme.colors.text}>
+                <AppText style={{ fontSize: 15, fontFamily: 'Inter-SemiBold', marginBottom: 12 }} color={theme.colors.text}>
+                  Purchase Order Details
+                </AppText>
+
+                <AppText style={{ fontSize: 13, fontFamily: 'Inter-Medium', marginBottom: 6 }} color={theme.colors.textSecondary}>
+                  PO Number
+                </AppText>
+                <TextInput
+                  value={poNumber}
+                  onChangeText={setPoNumber}
+                  placeholder="e.g. PO-2026-0042"
+                  placeholderTextColor={theme.colors.textMuted}
+                  style={[styles.siteInput, { backgroundColor: theme.colors.surfaceAlt, color: theme.colors.text, borderColor: theme.colors.border, marginBottom: 12 }]}
+                />
+
+                <AppText style={{ fontSize: 13, fontFamily: 'Inter-Medium', marginBottom: 6 }} color={theme.colors.textSecondary}>
+                  PO Date
+                </AppText>
+                <TouchableOpacity
+                  onPress={() => setShowPoDatePicker(true)}
+                  style={[styles.dateField, { borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceAlt }]}
+                  activeOpacity={0.7}
+                >
+                  <Calendar size={18} color={theme.colors.primary} strokeWidth={2} />
+                  <AppText style={{ fontSize: 14, fontFamily: 'Inter-Regular' }} color={poDate ? theme.colors.text : theme.colors.textMuted}>
+                    {poDate ? poDate.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : 'Select date'}
+                  </AppText>
+                </TouchableOpacity>
+                {showPoDatePicker && (
+                  Platform.OS === 'ios' ? (
+                    <Modal transparent animationType="slide">
+                      <View style={styles.pickerOverlay}>
+                        <View style={[styles.pickerSheet, { backgroundColor: theme.colors.surface }]}>
+                          <View style={styles.pickerHeader}>
+                            <TouchableOpacity onPress={() => setShowPoDatePicker(false)}>
+                              <AppText style={{ fontSize: 15, fontFamily: 'Inter-Medium' }} color={theme.colors.textMuted}>Cancel</AppText>
+                            </TouchableOpacity>
+                            <TouchableOpacity onPress={() => setShowPoDatePicker(false)}>
+                              <AppText style={{ fontSize: 15, fontFamily: 'Inter-SemiBold' }} color={theme.colors.primary}>Done</AppText>
+                            </TouchableOpacity>
+                          </View>
+                          <DateTimePicker
+                            value={poDate ?? new Date()}
+                            mode="date"
+                            display="spinner"
+                            maximumDate={new Date()}
+                            onChange={(_: DateTimePickerEvent, date?: Date) => { if (date) setPoDate(date); }}
+                          />
+                        </View>
+                      </View>
+                    </Modal>
+                  ) : (
+                    <DateTimePicker
+                      value={poDate ?? new Date()}
+                      mode="date"
+                      display="default"
+                      maximumDate={new Date()}
+                      onChange={(_: DateTimePickerEvent, date?: Date) => { setShowPoDatePicker(false); if (date) setPoDate(date); }}
+                    />
+                  )
+                )}
+
+                <AppText style={{ fontSize: 13, fontFamily: 'Inter-Medium', marginTop: 12, marginBottom: 6 }} color={theme.colors.textSecondary}>
+                  PO Amount
+                </AppText>
+                <TextInput
+                  value={poAmount}
+                  onChangeText={setPoAmount}
+                  placeholder="e.g. 150000"
+                  placeholderTextColor={theme.colors.textMuted}
+                  keyboardType="numeric"
+                  style={[styles.siteInput, { backgroundColor: theme.colors.surfaceAlt, color: theme.colors.text, borderColor: theme.colors.border }]}
+                />
+
+                <AppText style={{ fontSize: 13, fontFamily: 'Inter-Medium', marginTop: 12, marginBottom: 6 }} color={theme.colors.textSecondary}>
+                  Remarks (optional)
+                </AppText>
+                <TextInput
+                  value={poRemarks}
+                  onChangeText={setPoRemarks}
+                  placeholder="Any notes about this PO…"
+                  placeholderTextColor={theme.colors.textMuted}
+                  multiline
+                  style={[styles.siteInput, { backgroundColor: theme.colors.surfaceAlt, color: theme.colors.text, borderColor: theme.colors.border, minHeight: 80, textAlignVertical: 'top', paddingTop: 12 }]}
+                />
+
+                <AppText style={{ fontSize: 13, fontFamily: 'Inter-Medium', marginTop: 12, marginBottom: 6 }} color={theme.colors.textSecondary}>
                   Site (optional)
                 </AppText>
                 <TextInput
@@ -180,13 +299,17 @@ export function OpportunityDetailScreen() {
                   placeholderTextColor={theme.colors.textMuted}
                   style={[styles.siteInput, { backgroundColor: theme.colors.surfaceAlt, color: theme.colors.text, borderColor: theme.colors.border }]}
                 />
+
                 <AppButton
-                  label="Confirm win"
-                  onPress={() => winMutation.mutate(siteInput)}
+                  label="Confirm Won"
+                  onPress={submitWin}
                   loading={winMutation.isPending}
                   fullWidth
-                  style={{ marginTop: 10 }}
+                  style={{ marginTop: 16 }}
                 />
+                <TouchableOpacity onPress={() => setShowWinInput(false)} style={{ alignItems: 'center', paddingVertical: 10 }}>
+                  <AppText style={{ fontSize: 13, fontFamily: 'Inter-Medium' }} color={theme.colors.textMuted}>Cancel</AppText>
+                </TouchableOpacity>
               </View>
             )}
             <TouchableOpacity onPress={handleMarkLost} style={styles.lostBtn} activeOpacity={0.75}>
@@ -237,4 +360,20 @@ const styles = StyleSheet.create({
   lostBtnText: { fontSize: 14, fontFamily: 'Inter-SemiBold', color: '#DC2626' },
   section: { borderRadius: 16, borderWidth: 1, padding: 16, marginBottom: 12 },
   historyRow: { paddingVertical: 10 },
+  dateField: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    borderWidth: 1, height: 44, paddingHorizontal: 12, borderRadius: 10,
+  },
+  pickerOverlay: {
+    flex: 1, justifyContent: 'flex-end',
+    backgroundColor: 'rgba(0,0,0,0.4)',
+  },
+  pickerSheet: {
+    borderTopLeftRadius: 20, borderTopRightRadius: 20,
+    paddingBottom: 24,
+  },
+  pickerHeader: {
+    flexDirection: 'row', justifyContent: 'space-between',
+    paddingHorizontal: 20, paddingVertical: 14,
+  },
 });

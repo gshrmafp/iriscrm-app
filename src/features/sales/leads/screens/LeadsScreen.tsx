@@ -34,14 +34,11 @@ const STATUS_BADGE: Record<string, { label: string; bg: string; color: string }>
 };
 
 const OPPORTUNITY_STAGE_BADGE: Record<string, { label: string; bg: string; color: string }> = {
-  NEW:         { label: 'New Visit',   bg: '#DBEAFE', color: '#1D4ED8' },
-  CONTACTED:   { label: 'Contacted',   bg: '#E9D5FF', color: '#7C3AED' },
-  QUALIFIED:   { label: 'Qualified',   bg: '#D1FAE5', color: '#065F46' },
-  QUOTED:      { label: 'Quotation',   bg: '#FEF3C7', color: '#D97706' },
-  NEGOTIATION: { label: 'Follow-ups',  bg: '#FFEDD5', color: '#C2410C' },
-  MEETING:     { label: 'Meeting',     bg: '#E0E7FF', color: '#4338CA' },
-  WON:         { label: 'PO',          bg: '#DCFCE7', color: '#15803D' },
-  LOST:        { label: 'Lost',        bg: '#FEE2E2', color: '#991B1B' },
+  QUOTATION:      { label: 'Quotation',      bg: '#FEF3C7', color: '#D97706' },
+  FOLLOWUP:       { label: 'Follow-up',      bg: '#FFEDD5', color: '#C2410C' },
+  MEETING:        { label: 'Meeting',        bg: '#E0E7FF', color: '#4338CA' },
+  PURCHASE_ORDER: { label: 'Purchase Order', bg: '#DCFCE7', color: '#15803D' },
+  LOST:           { label: 'Lost',           bg: '#FEE2E2', color: '#991B1B' },
 };
 
 const STEP_META = [
@@ -64,10 +61,10 @@ const FILTER_TABS: FilterTab[] = [
   { key: 'draft',      label: 'Drafts',     emoji: '📝', isDraft: true },
   { key: 'new',        label: 'New',        emoji: '🔵', status: 'NEW' },
   { key: 'qualified',  label: 'Qualified',  emoji: '✅', status: 'QUALIFIED' },
-  { key: 'quoted',     label: 'Quotation',  emoji: '📄', opportunityStage: 'QUOTED' },
-  { key: 'followups',  label: 'Follow-ups', emoji: '📞', opportunityStage: 'NEGOTIATION' },
+  { key: 'quoted',     label: 'Quotation',  emoji: '📄', opportunityStage: 'QUOTATION' },
+  { key: 'followups',  label: 'Follow-ups', emoji: '📞', opportunityStage: 'FOLLOWUP' },
   { key: 'meeting',    label: 'Meeting',    emoji: '🤝', opportunityStage: 'MEETING' },
-  { key: 'won',        label: 'PO',         emoji: '🏆', opportunityStage: 'WON' },
+  { key: 'won',        label: 'PO',         emoji: '🏆', opportunityStage: 'PURCHASE_ORDER' },
   { key: 'lost',       label: 'Lost',       emoji: '❌', status: 'LOST' },
 ];
 
@@ -181,18 +178,18 @@ function LeadCard({ item, onPress }: { item: Lead; onPress: () => void }) {
         </View>
         {company ? (
           <AppText style={styles.leadCompany} color={theme.colors.textSecondary} numberOfLines={1}>
-            {company}{item.productInterest ? ` · ${item.productInterest}` : ''}
+            {company}
           </AppText>
         ) : null}
 
-        {/* Draft leads show step progress instead of notes */}
+        {/* Draft leads show step progress instead of the discussion note */}
         {isDraft ? (
           <StepProgress step={item.currentStep ?? 1} />
         ) : (
           <>
-            {item.notes ? (
+            {item.discussionNote ? (
               <AppText style={styles.leadNote} color={theme.colors.textMuted} numberOfLines={1}>
-                {item.notes}
+                {item.discussionNote}
               </AppText>
             ) : null}
           </>

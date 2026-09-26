@@ -11,12 +11,51 @@ export interface FollowUp {
   completedAt?: string | null;
   createdAt: string;
   lead?: { id: string; contactName: string; companyName?: string };
+  // Snapshot of which of the 7 named lead-lifecycle stages was active at the
+  // exact moment this follow-up was logged (NEW_LEAD | CONTACTED | QUOTATION |
+  // FOLLOWUP | MEETING | PURCHASE_ORDER | LOST) — set by the backend, never sent.
+  // Powers the stage-grouped Lead Journey accordion.
+  loggedAtStage?: string | null;
 }
 
 export interface OpportunitySummary {
   id: string;
   value: string;
   stage: string;
+  // Only populated on the GET /leads/:id detail response (list/summary
+  // endpoints only select id/value/stage) — captured at qualification (Step 3,
+  // REQUIREMENT_IDENTIFIED path) and at Win time respectively.
+  initialQuotationRef?: string;
+  initialQuotationDate?: string;
+  initialQuotationAmount?: string; // Prisma Decimal, serialized as a string
+  poNumber?: string;
+  poDate?: string;
+  poAmount?: string; // Prisma Decimal, serialized as a string
+  poRemarks?: string;
+  // Also only on the detail response — the durable audit trail of every real
+  // stage transition. Lets the Lead Journey mark a stage "reached" even after
+  // the opportunity later moves to LOST, instead of relying solely on the
+  // current (possibly regressed-to-LOST) `stage` value.
+  stageHistory?: { id: string; fromStage: string | null; toStage: string; remark?: string; createdAt: string }[];
+}
+
+// A physical meeting logged against a lead — note + silently-captured GPS.
+// Loggable at any point in the lead's life, same as follow-ups. Logging one
+// advances the linked opportunity's stage to MEETING (never-regress, only
+// from QUOTATION or FOLLOWUP) — invalidate the opportunity + lead queries
+// after a successful POST.
+export interface LeadMeeting {
+  id: string;
+  leadId: string;
+  note: string;
+  gpsLatitude?: number;
+  gpsLongitude?: number;
+  visitLocation?: string;
+  createdBy?: string;
+  createdAt: string;
+  // See FollowUp.loggedAtStage — same snapshot semantics, captured on every
+  // POST /leads/:id/meetings call.
+  loggedAtStage?: string | null;
 }
 
 export interface Lead {
@@ -27,15 +66,9 @@ export interface Lead {
   contactPhone?: string;
   contactEmail?: string;
   status: string;
-  source?: string;
-  sourceOther?: string;
-  productInterest?: string;
-  productInterestOther?: string;
-  address?: string;
   gpsLatitude?: number;
   gpsLongitude?: number;
   visitLocation?: string;
-  notes?: string;
   currentStep?: number;
   step1CompletedAt?: string;
   step2CompletedAt?: string;
@@ -48,6 +81,7 @@ export interface Lead {
   updatedAt?: string;
   owner?: { id: string; name: string; email: string };
   followUps?: FollowUp[];
+  meetings?: LeadMeeting[];
   // Embedded on both the list and detail endpoints — the real deal value/stage
   // once a lead has been qualified. Never fabricate this from Lead fields.
   opportunity?: OpportunitySummary | null;
@@ -76,11 +110,6 @@ export interface LeadDashboardSummary {
   needAttentionCount: number;
 }
 
-export interface CreateLeadResult {
-  lead: Lead;
-  duplicateWarning?: string[];
-}
-
 export const leadsApi = {
   list: (params: {
     page?: number;
@@ -97,11 +126,6 @@ export const leadsApi = {
 
   getOne: (id: string) => apiClient.get<Lead>(`/leads/${id}`),
 
-  // POST /leads returns { lead, duplicateWarning? } — not the Lead directly,
-  // since the backend surfaces a same-region phone/email duplicate warning
-  // alongside the created record.
-  create: (body: Partial<Lead>) => apiClient.post<CreateLeadResult>('/leads', body),
-
   statusSummary: () => apiClient.get<StatusSummaryItem[]>('/leads/status-summary'),
 
   followUpsFeed: (params?: { page?: number; pageSize?: number; completed?: boolean }) =>
@@ -113,25 +137,25 @@ export const leadsApi = {
   completeFollowUp: (followUpId: string) =>
     apiClient.post<FollowUp>(`/leads/follow-ups/${followUpId}/complete`),
 
-  markLost: (id: string, reason: string) =>
-    apiClient.post<Lead>(`/leads/${id}/lost`, { reason }),
-
-  qualify: (id: string, body: { dealType: string; value: number; expectedClose?: string }) =>
-    apiClient.post(`/leads/${id}/qualify`, body),
+  // Physical meeting log — note + silently-captured GPS. Loggable at any
+  // point in the lead's life. A successful call may advance the linked
+  // opportunity's stage to MEETING — invalidate opportunity + lead queries.
+  addMeeting: (id: string, body: { note: string; gpsLatitude?: number; gpsLongitude?: number; visitLocation?: string }) =>
+    apiClient.post<LeadMeeting>(`/leads/${id}/meetings`, body),
 
   createStepped: (body: {
     companyName: string;
-    remarks?: string;
-    gpsLatitude?: number;
-    gpsLongitude?: number;
-    visitLocation?: string;
+    remarks: string;
+    gpsLatitude: number;
+    gpsLongitude: number;
+    visitLocation: string;
   }) => apiClient.post<{ lead: Lead }>('/leads/stepped', body),
 
   saveStep2: (id: string, body: {
     contactName: string;
-    contactPhone?: string;
+    contactPhone: string;
     contactEmail?: string;
-    discussionNote?: string;
+    discussionNote: string;
   }) => apiClient.patch<{ lead: Lead; duplicateWarning?: string[] }>(`/leads/${id}/step-2`, body),
 
   saveStep3: (id: string, body:

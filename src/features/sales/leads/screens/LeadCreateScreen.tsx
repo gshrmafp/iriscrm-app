@@ -18,7 +18,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   MapPin,
   Lock,
@@ -27,6 +27,8 @@ import {
   CheckCircle,
   Check,
   Calendar,
+  CalendarDays,
+  Users,
   ThumbsUp,
   ThumbsDown,
 } from 'lucide-react-native';
@@ -46,6 +48,9 @@ import {
   type LocationPermissionStatus,
   type LocationCoords,
 } from '@/services/location';
+import { useSilentLocationCapture } from '@/hooks/useSilentLocationCapture';
+import { FollowUpModal, MeetingModal } from '@/features/sales/leads/components/FollowUpMeetingModals';
+import { LoggedFollowUpCard, LoggedMeetingCard } from '@/features/sales/leads/components/LoggedActivityCards';
 
 type Nav = NativeStackNavigationProp<SalesStackParamList>;
 
@@ -53,7 +58,7 @@ type Nav = NativeStackNavigationProp<SalesStackParamList>;
 
 const step1Schema = z.object({
   companyName: z.string().min(1, 'Company name is required'),
-  remarks: z.string().optional(),
+  remarks: z.string().min(1, 'Remarks are required').max(400, 'Max 400 characters'),
 });
 type Step1Data = z.infer<typeof step1Schema>;
 
@@ -69,7 +74,7 @@ const step2Schema = z.object({
     .optional()
     .refine(val => !val || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val), { message: 'Enter a valid email address' })
     .or(z.literal('')),
-  discussionNote: z.string().max(1000, 'Max 1000 characters').optional(),
+  discussionNote: z.string().min(1, 'Discussion note is required').max(400, 'Max 400 characters'),
 });
 type Step2Data = z.infer<typeof step2Schema>;
 
@@ -128,6 +133,25 @@ function LockedStepCard({ title, fields, theme }: { title: string; fields: { lab
   );
 }
 
+// --- Inline Log Follow-up / Log Meeting row ---
+// Shown right below a locked step's summary once a leadId exists, so a Sales
+// Exec can log something from the site visit without leaving the wizard.
+// Opens the same FollowUpModal/MeetingModal used on LeadDetailScreen.
+function InlineLogRow({ onLogFollowUp, onLogMeeting, theme }: { onLogFollowUp: () => void; onLogMeeting: () => void; theme: any }) {
+  return (
+    <View style={s.inlineLogRow}>
+      <TouchableOpacity onPress={onLogFollowUp} style={[s.inlineLogBtn, { borderColor: theme.colors.border }]} activeOpacity={0.75}>
+        <CalendarDays size={14} color={theme.colors.primary} strokeWidth={2} />
+        <AppText style={{ fontSize: 12, fontFamily: 'Inter-SemiBold' }} color={theme.colors.primary}>Log Follow-up</AppText>
+      </TouchableOpacity>
+      <TouchableOpacity onPress={onLogMeeting} style={[s.inlineLogBtn, { borderColor: theme.colors.border }]} activeOpacity={0.75}>
+        <Users size={14} color={theme.colors.primary} strokeWidth={2} />
+        <AppText style={{ fontSize: 12, fontFamily: 'Inter-SemiBold' }} color={theme.colors.primary}>Log Meeting</AppText>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
 // --- Section Connector ---
 
 function SectionConnector({ theme }: { theme: any }) {
@@ -177,12 +201,61 @@ export function LeadCreateScreen() {
   const [showQuotationPicker, setShowQuotationPicker] = useState(false);
   const [quotationAmount, setQuotationAmount] = useState('');
 
+  // Inline Log Follow-up / Log Meeting — available right below a locked
+  // Step 1/Step 2 summary, reusing the same modals LeadDetailScreen uses.
+  const [followUpModal, setFollowUpModal] = useState(false);
+  const [meetingModal, setMeetingModal] = useState(false);
+  const { location: meetingLocation, capture: captureMeetingLocation, reset: resetMeetingLocation } = useSilentLocationCapture();
+
+  useEffect(() => {
+    if (meetingModal) {
+      resetMeetingLocation();
+      void captureMeetingLocation();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [meetingModal]);
+
+  const invalidateLeadQueries = useCallback(() => {
+    if (!leadId) return;
+    queryClient.invalidateQueries({ queryKey: ['lead', leadId] });
+    queryClient.invalidateQueries({ queryKey: ['leads'] });
+  }, [leadId, queryClient]);
+
+  const followUpMutation = useMutation({
+    mutationFn: (body: { note: string; channel: string }) => leadsApi.addFollowUp(leadId!, body),
+    onSuccess: () => {
+      invalidateLeadQueries();
+      setFollowUpModal(false);
+    },
+    onError: () => Alert.alert('Error', 'Could not save follow-up.'),
+  });
+
+  const meetingMutation = useMutation({
+    mutationFn: (body: { note: string }) => leadsApi.addMeeting(leadId!, { note: body.note, ...meetingLocation }),
+    onSuccess: () => {
+      invalidateLeadQueries();
+      setMeetingModal(false);
+    },
+    onError: () => Alert.alert('Error', 'Could not save meeting.'),
+  });
+
   // Resume: fetch existing lead
   const { data: resumeLead, isLoading: resumeLoading } = useQuery({
     queryKey: ['lead', resumeLeadId],
     queryFn: () => leadsApi.getOne(resumeLeadId!).then(r => r.data),
     enabled: !!resumeLeadId,
   });
+
+  // Live lead record (once created) — the follow-up/meeting mutations below
+  // invalidate this same ['lead', leadId] query key, so a newly-logged entry
+  // shows up here instantly instead of only surfacing an alert.
+  const { data: liveLead } = useQuery({
+    queryKey: ['lead', leadId],
+    queryFn: () => leadsApi.getOne(leadId!).then(r => r.data),
+    enabled: !!leadId,
+  });
+  const followUpsAt = (stage: string) => (liveLead?.followUps ?? []).filter(f => f.loggedAtStage === stage);
+  const meetingsAt = (stage: string) => (liveLead?.meetings ?? []).filter(m => m.loggedAtStage === stage);
 
   useEffect(() => {
     if (resumeLead) {
@@ -299,13 +372,16 @@ export function LeadCreateScreen() {
   });
 
   const onSaveStep1 = useCallback(async (data: Step1Data) => {
+    // The submit button is disabled until both are resolved (see the
+    // location-gated TouchableOpacity below), so these are always present here.
+    if (!coords || !visitLocation) return;
     try {
       const res = await leadsApi.createStepped({
         companyName: data.companyName,
-        remarks: data.remarks || undefined,
-        gpsLatitude: coords?.latitude,
-        gpsLongitude: coords?.longitude,
-        visitLocation: visitLocation || undefined,
+        remarks: data.remarks,
+        gpsLatitude: coords.latitude,
+        gpsLongitude: coords.longitude,
+        visitLocation,
       });
       const lead = res.data.lead;
       setLeadId(lead.id);
@@ -329,9 +405,9 @@ export function LeadCreateScreen() {
     try {
       const res = await leadsApi.saveStep2(leadId, {
         contactName: data.contactName,
-        contactPhone: data.contactPhone || undefined,
+        contactPhone: data.contactPhone,
         contactEmail: data.contactEmail || undefined,
-        discussionNote: data.discussionNote || undefined,
+        discussionNote: data.discussionNote,
       });
       if (res.data.duplicateWarning?.length) {
         Alert.alert('Duplicate Warning', `Similar lead(s): ${res.data.duplicateWarning.join(', ')}`);
@@ -454,6 +530,20 @@ export function LeadCreateScreen() {
                   ...(visitLocation ? [{ label: 'Location', value: visitLocation }] : []),
                 ]}
               />
+              {leadId && (
+                <>
+                  <InlineLogRow theme={theme}
+                    onLogFollowUp={() => setFollowUpModal(true)}
+                    onLogMeeting={() => setMeetingModal(true)}
+                  />
+                  {(followUpsAt('NEW_LEAD').length > 0 || meetingsAt('NEW_LEAD').length > 0) && (
+                    <View style={{ gap: 8, marginTop: -8, marginBottom: 8 }}>
+                      {followUpsAt('NEW_LEAD').map(f => <LoggedFollowUpCard key={f.id} item={f} theme={theme} />)}
+                      {meetingsAt('NEW_LEAD').map(m => <LoggedMeetingCard key={m.id} item={m} theme={theme} />)}
+                    </View>
+                  )}
+                </>
+              )}
               <SectionConnector theme={theme} />
             </>
           )}
@@ -471,6 +561,20 @@ export function LeadCreateScreen() {
                   ...(step2Values.discussionNote ? [{ label: 'Discussion', value: step2Values.discussionNote }] : []),
                 ]}
               />
+              {leadId && (
+                <>
+                  <InlineLogRow theme={theme}
+                    onLogFollowUp={() => setFollowUpModal(true)}
+                    onLogMeeting={() => setMeetingModal(true)}
+                  />
+                  {(followUpsAt('CONTACTED').length > 0 || meetingsAt('CONTACTED').length > 0) && (
+                    <View style={{ gap: 8, marginTop: -8, marginBottom: 8 }}>
+                      {followUpsAt('CONTACTED').map(f => <LoggedFollowUpCard key={f.id} item={f} theme={theme} />)}
+                      {meetingsAt('CONTACTED').map(m => <LoggedMeetingCard key={m.id} item={m} theme={theme} />)}
+                    </View>
+                  )}
+                </>
+              )}
               <SectionConnector theme={theme} />
             </>
           )}
@@ -492,15 +596,22 @@ export function LeadCreateScreen() {
               )} />
 
               <Controller control={step1Form.control} name="remarks" render={({ field }) => (
-                <AppInput
-                  label="Remarks / Observation"
-                  placeholder="What did you observe at the site?"
-                  value={field.value}
-                  onChangeText={field.onChange}
-                  onBlur={field.onBlur}
-                  multiline
-                  style={{ minHeight: 120, textAlignVertical: 'top' }}
-                />
+                <>
+                  <AppInput
+                    label="Remarks / Observation"
+                    placeholder="What did you observe at the site?"
+                    value={field.value}
+                    onChangeText={field.onChange}
+                    onBlur={field.onBlur}
+                    error={step1Form.formState.errors.remarks?.message}
+                    multiline
+                    maxLength={400}
+                    style={{ minHeight: 120, textAlignVertical: 'top' }}
+                  />
+                  <AppText style={{ fontSize: 11, alignSelf: 'flex-end', marginTop: -2, marginBottom: 8 }} color={theme.colors.textMuted}>
+                    {(field.value?.length ?? 0)}/400
+                  </AppText>
+                </>
               )} />
 
               {/* GPS status */}
@@ -541,28 +652,45 @@ export function LeadCreateScreen() {
                 )}
               </View>
 
-              <TouchableOpacity
-                onPress={() => {
-                  if (!coords) {
-                    Alert.alert(
-                      'Location Required',
-                      'GPS location must be captured before saving. Please enable location and try again.',
-                      locationStatus === 'blocked'
-                        ? [{ text: 'Open Settings', onPress: () => openLocationSettings() }, { text: 'Cancel', style: 'cancel' }]
-                        : [{ text: 'Retry', onPress: () => acquireLocation() }, { text: 'Cancel', style: 'cancel' }],
-                    );
-                    return;
-                  }
-                  void step1Form.handleSubmit(onSaveStep1)();
-                }}
-                style={[s.submitBtn, { backgroundColor: theme.colors.primary, opacity: (step1Form.formState.isSubmitting || locationLoading) ? 0.7 : 1 }]}
-                disabled={step1Form.formState.isSubmitting || locationLoading}
-                activeOpacity={0.85}
-              >
-                <AppText style={s.submitBtnText}>
-                  {step1Form.formState.isSubmitting ? 'Saving…' : locationLoading ? 'Getting Location…' : 'Save & Continue'}
-                </AppText>
-              </TouchableOpacity>
+              {(() => {
+                // gpsLatitude, gpsLongitude and visitLocation are all required by
+                // the backend now — keep the save button disabled until GPS has
+                // resolved to a coordinate AND the reverse-geocoded address has
+                // come back, reusing the existing GPS capture state machine above.
+                const locationResolved = !!coords && !!visitLocation;
+                const locationBlockedOrFailed = !locationLoading && (locationStatus === 'blocked' || locationStatus === 'unavailable' || locationStatus === 'denied');
+                const saveDisabled = step1Form.formState.isSubmitting || locationLoading || !locationResolved;
+                return (
+                  <TouchableOpacity
+                    onPress={() => {
+                      if (!locationResolved) {
+                        Alert.alert(
+                          'Location Required',
+                          'GPS location must be captured before saving. Please enable location and try again.',
+                          locationStatus === 'blocked'
+                            ? [{ text: 'Open Settings', onPress: () => openLocationSettings() }, { text: 'Cancel', style: 'cancel' }]
+                            : [{ text: 'Retry', onPress: () => acquireLocation() }, { text: 'Cancel', style: 'cancel' }],
+                        );
+                        return;
+                      }
+                      void step1Form.handleSubmit(onSaveStep1)();
+                    }}
+                    style={[s.submitBtn, { backgroundColor: theme.colors.primary, opacity: saveDisabled ? 0.5 : 1 }]}
+                    disabled={saveDisabled}
+                    activeOpacity={0.85}
+                  >
+                    <AppText style={s.submitBtnText}>
+                      {step1Form.formState.isSubmitting
+                        ? 'Saving…'
+                        : locationLoading
+                          ? 'Getting Location…'
+                          : !locationResolved
+                            ? locationBlockedOrFailed ? 'Location Required' : 'Waiting for Location…'
+                            : 'Save & Continue'}
+                    </AppText>
+                  </TouchableOpacity>
+                );
+              })()}
             </View>
           )}
 
@@ -611,17 +739,22 @@ export function LeadCreateScreen() {
               )} />
 
               <Controller control={step2Form.control} name="discussionNote" render={({ field }) => (
-                <AppInput
-                  label="Discussion Note"
-                  placeholder="Key points from the conversation…"
-                  value={field.value}
-                  onChangeText={field.onChange}
-                  onBlur={field.onBlur}
-                  error={step2Form.formState.errors.discussionNote?.message}
-                  multiline
-                  maxLength={1000}
-                  style={{ minHeight: 120, textAlignVertical: 'top' }}
-                />
+                <>
+                  <AppInput
+                    label="Discussion Note"
+                    placeholder="Key points from the conversation…"
+                    value={field.value}
+                    onChangeText={field.onChange}
+                    onBlur={field.onBlur}
+                    error={step2Form.formState.errors.discussionNote?.message}
+                    multiline
+                    maxLength={400}
+                    style={{ minHeight: 120, textAlignVertical: 'top' }}
+                  />
+                  <AppText style={{ fontSize: 11, alignSelf: 'flex-end', marginTop: -2, marginBottom: 8 }} color={theme.colors.textMuted}>
+                    {(field.value?.length ?? 0)}/400
+                  </AppText>
+                </>
               )} />
 
               <TouchableOpacity
@@ -885,6 +1018,7 @@ export function LeadCreateScreen() {
                                 value={quotationDate ?? new Date()}
                                 mode="date"
                                 display="spinner"
+                                minimumDate={new Date()}
                                 onChange={(_: DateTimePickerEvent, date?: Date) => { if (date) setQuotationDate(date); }}
                               />
                             </View>
@@ -895,6 +1029,7 @@ export function LeadCreateScreen() {
                           value={quotationDate ?? new Date()}
                           mode="date"
                           display="default"
+                          minimumDate={new Date()}
                           onChange={(_: DateTimePickerEvent, date?: Date) => { setShowQuotationPicker(false); if (date) setQuotationDate(date); }}
                         />
                       )
@@ -926,6 +1061,11 @@ export function LeadCreateScreen() {
           </TouchableOpacity>
         </ScrollView>
       </KeyboardAvoidingView>
+
+      <FollowUpModal visible={followUpModal} onClose={() => setFollowUpModal(false)}
+        onSubmit={(d) => followUpMutation.mutate(d)} loading={followUpMutation.isPending} />
+      <MeetingModal visible={meetingModal} onClose={() => setMeetingModal(false)}
+        onSubmit={(d) => meetingMutation.mutate(d)} loading={meetingMutation.isPending} />
     </Screen>
   );
 }
@@ -945,6 +1085,8 @@ const s = StyleSheet.create({
   lockedRow: { flexDirection: 'column', gap: 2 },
   lockedLabel: { fontSize: 11, fontFamily: 'Inter-Medium', color: '#94A3B8', textTransform: 'uppercase', letterSpacing: 0.5 },
   lockedValue: { fontSize: 14, fontFamily: 'Inter-Regular', lineHeight: 20 },
+  inlineLogRow: { flexDirection: 'row', gap: 8, marginTop: 8 },
+  inlineLogBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, borderWidth: 1, borderRadius: 10, paddingVertical: 10 },
   connectorWrap: { alignItems: 'center', height: 28 },
   connectorLine: { width: 1.5, flex: 1 },
   connectorDot: { width: 6, height: 6, borderRadius: 3 },
