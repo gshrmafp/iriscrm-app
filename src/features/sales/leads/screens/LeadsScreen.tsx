@@ -13,7 +13,7 @@ import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useInfiniteQuery } from '@tanstack/react-query';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Search, Plus, MapPin, User, FileText, ChevronRight } from 'lucide-react-native';
+import { Search, Plus, MapPin, User, FileText } from 'lucide-react-native';
 import { useTheme } from '@/design-system';
 import { Screen } from '@/components/common/Screen';
 import { AppText } from '@/components/common/AppText';
@@ -35,9 +35,9 @@ const STATUS_BADGE: Record<string, { label: string; bg: string; color: string }>
 
 const OPPORTUNITY_STAGE_BADGE: Record<string, { label: string; bg: string; color: string }> = {
   QUOTATION:      { label: 'Quotation',      bg: '#FEF3C7', color: '#D97706' },
-  FOLLOWUP:       { label: 'Follow-up',      bg: '#FFEDD5', color: '#C2410C' },
+  FOLLOWUP:       { label: 'Quotation',      bg: '#FEF3C7', color: '#D97706' },
   MEETING:        { label: 'Meeting',        bg: '#E0E7FF', color: '#4338CA' },
-  PURCHASE_ORDER: { label: 'Purchase Order', bg: '#DCFCE7', color: '#15803D' },
+  PURCHASE_ORDER: { label: 'PO',             bg: '#DCFCE7', color: '#15803D' },
   LOST:           { label: 'Lost',           bg: '#FEE2E2', color: '#991B1B' },
 };
 
@@ -51,21 +51,23 @@ type FilterTab = {
   key: string;
   label: string;
   emoji?: string;
-  status?: string;
-  opportunityStage?: string;
+  // Composite "Lead Journey" stage filter — one of the 7 canonical values
+  // (see leads.api.ts's LeadStageFilter). Folds status/currentStep and
+  // Opportunity.stage the same way the backend's buildStageWhere() does.
+  stage?: string;
   isDraft?: boolean;
 };
 
 const FILTER_TABS: FilterTab[] = [
-  { key: 'all',        label: 'All' },
-  { key: 'draft',      label: 'Drafts',     emoji: '📝', isDraft: true },
-  { key: 'new',        label: 'New',        emoji: '🔵', status: 'NEW' },
-  { key: 'qualified',  label: 'Qualified',  emoji: '✅', status: 'QUALIFIED' },
-  { key: 'quoted',     label: 'Quotation',  emoji: '📄', opportunityStage: 'QUOTATION' },
-  { key: 'followups',  label: 'Follow-ups', emoji: '📞', opportunityStage: 'FOLLOWUP' },
-  { key: 'meeting',    label: 'Meeting',    emoji: '🤝', opportunityStage: 'MEETING' },
-  { key: 'won',        label: 'PO',         emoji: '🏆', opportunityStage: 'PURCHASE_ORDER' },
-  { key: 'lost',       label: 'Lost',       emoji: '❌', status: 'LOST' },
+  { key: 'all',            label: 'All' },
+  { key: 'draft',          label: 'Drafts',     emoji: '📝', isDraft: true },
+  { key: 'new_lead',       label: 'New Visit',  emoji: '🔵', stage: 'NEW_LEAD' },
+  { key: 'contacted',      label: 'Contacted',  emoji: '📞', stage: 'CONTACTED' },
+  { key: 'qualified',      label: 'Qualified',  emoji: '✅', stage: 'QUALIFIED' },
+  { key: 'quotation',      label: 'Quotation',  emoji: '📄', stage: 'QUOTATION' },
+  { key: 'meeting',        label: 'Meeting',    emoji: '🤝', stage: 'MEETING' },
+  { key: 'po',             label: 'PO',         emoji: '🏆', stage: 'PURCHASE_ORDER' },
+  { key: 'lost',           label: 'Lost',       emoji: '❌', stage: 'LOST' },
 ];
 
 const AVATAR_COLORS = [
@@ -224,28 +226,41 @@ export function LeadsScreen() {
   const insets = useSafeAreaInsets();
   const { value: search, debouncedValue: debouncedSearch, onChange: handleSearch } = useDebounceSearch();
 
+  // Accepts either a tab's own key (old callers, e.g. 'draft'/'qualified')
+  // or one of the 7 canonical stage values directly (e.g. 'QUOTATION',
+  // matching leadsApi's LeadStageFilter) so the Dashboard's per-stage
+  // "View all" links can pass journeySummary's own stage strings unchanged.
+  function findFilterTab(value: string): FilterTab | undefined {
+    return FILTER_TABS.find(f => f.key === value || f.stage === value);
+  }
+
   const initialFilter = route.params?.filter
-    ? FILTER_TABS.find(f => f.key === route.params!.filter) ?? FILTER_TABS[0]
+    ? findFilterTab(route.params.filter) ?? FILTER_TABS[0]
     : FILTER_TABS[0];
   const [activeFilter, setActiveFilter] = useState<FilterTab>(initialFilter);
+  const ownerId = route.params?.ownerId;
 
   useEffect(() => {
     if (route.params?.filter) {
-      const matched = FILTER_TABS.find(f => f.key === route.params!.filter);
+      const matched = findFilterTab(route.params.filter);
       if (matched) setActiveFilter(matched);
     }
   }, [route.params?.filter]);
 
   const { data, fetchNextPage, hasNextPage, isFetchingNextPage, isLoading, isError, refetch } =
     useInfiniteQuery({
-      queryKey: ['leads', debouncedSearch, activeFilter.key],
+      queryKey: ['leads', debouncedSearch, activeFilter.key, ownerId],
       queryFn: ({ pageParam }) =>
         leadsApi.list({
           page: pageParam as number,
           pageSize: PAGE_SIZE,
           search: debouncedSearch || undefined,
-          status: activeFilter.isDraft ? 'NEW' : activeFilter.status,
-          opportunityStage: activeFilter.opportunityStage,
+          // Drafts (currentStep < 3) aren't one of the 7 canonical stages —
+          // narrow server-side via status=NEW (every draft is status NEW)
+          // and finish the currentStep<3 cut client-side, same as before.
+          status: activeFilter.isDraft ? 'NEW' : undefined,
+          stage: activeFilter.isDraft ? undefined : activeFilter.stage,
+          ownerId,
         }).then(r => r.data),
       initialPageParam: 1,
       getNextPageParam: (lastPage) => {

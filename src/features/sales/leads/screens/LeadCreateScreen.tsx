@@ -466,8 +466,7 @@ export function LeadCreateScreen() {
 
       if (res.data.opportunity?.id) {
         Alert.alert('Lead Qualified', 'Opportunity created successfully.', [
-          { text: 'View', onPress: () => navigation.replace('OpportunityDetail', { id: res.data.opportunity!.id }) },
-          { text: 'Done', onPress: () => navigation.goBack() },
+          { text: 'OK', onPress: () => navigation.replace('LeadDetail', { id: leadId }) },
         ]);
       } else if (body.path === 'NOT_QUALIFIED') {
         Alert.alert('Lead Cancelled', '', [{ text: 'Done', onPress: () => navigation.goBack() }]);

@@ -2,7 +2,7 @@ import type { NavigatorScreenParams } from '@react-navigation/native';
 
 export type SalesTabParamList = {
   Home: undefined;
-  Leads: { filter?: string } | undefined;
+  Leads: { filter?: string; ownerId?: string } | undefined;
   Activities: undefined;
   Profile: undefined;
 };

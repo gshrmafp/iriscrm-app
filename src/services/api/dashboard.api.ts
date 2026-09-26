@@ -16,6 +16,6 @@ export const dashboardApi = {
   leadStatusSummary: () =>
     apiClient.get<Array<{ status: string; count: number }>>('/leads/status-summary'),
 
-  opportunityStats: () =>
-    apiClient.get<OpportunityStats>('/opportunities/summary/stats'),
+  opportunityStats: (params?: { ownerId?: string; dateFrom?: string; dateTo?: string }) =>
+    apiClient.get<OpportunityStats>('/opportunities/summary/stats', { params }),
 };

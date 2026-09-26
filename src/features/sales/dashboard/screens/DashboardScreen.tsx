@@ -8,17 +8,26 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   Plus, TrendingUp, Users, Clock, Building2,
-  Phone, Mail, CalendarCheck, MapPin, User, FileText,
+  Phone, Mail, CalendarCheck, MapPin, User,
   ChevronRight, CheckCircle2,
 } from 'lucide-react-native';
 import { useTheme } from '@/design-system';
 import { Screen } from '@/components/common/Screen';
 import { AppText } from '@/components/common/AppText';
 import { NotificationBell } from '@/components/common/NotificationBell';
+import { DateRangeFilter, DateRangeValue } from '@/components/common/DateRangeFilter';
 import { useAppSelector } from '@/app/store/hooks';
 import { dashboardApi } from '@/services/api/dashboard.api';
-import { leadsApi, FollowUp, Lead } from '@/services/api/leads.api';
+import {
+  leadsApi,
+  FollowUp,
+  JourneyRecentLead,
+  JourneyStageSummary,
+  LeadStageFilter,
+  TeamPerformanceRow,
+} from '@/services/api/leads.api';
 import { customersApi } from '@/services/api/customers.api';
+import { identityApi } from '@/services/api/identity.api';
 import { isDueToday, isOverdue } from '@/utils/date';
 import { DARK_NAVY } from '@/constants/brandColors';
 import { SalesStackParamList } from '@/features/sales/navigation/types';
@@ -27,6 +36,21 @@ type Nav = NativeStackNavigationProp<SalesStackParamList>;
 
 const CHANNEL_ICON: Record<string, React.ComponentType<any>> = {
   call: Phone, email: Mail, meeting: CalendarCheck, visit: Building2,
+};
+
+const MANAGER_ROLES = ['SALES_MANAGER', 'REGIONAL_ADMIN', 'SUPER_ADMIN'];
+
+// Per-stage presentation for the 7-stage Lead Journey breakdown — mirrors
+// the same labels/colors used on web (Dashboard's STAGE_META / Leads
+// list's deriveLeadStage) so the app reads consistently everywhere.
+const STAGE_META: Record<LeadStageFilter, { label: string; dotColor: string }> = {
+  NEW_LEAD: { label: 'New Visit', dotColor: '#F59E0B' },
+  CONTACTED: { label: 'Contacted', dotColor: '#3B82F6' },
+  QUALIFIED: { label: 'Qualified', dotColor: '#059669' },
+  QUOTATION: { label: 'Quotation', dotColor: '#D97706' },
+  MEETING: { label: 'Meeting', dotColor: '#4338CA' },
+  PURCHASE_ORDER: { label: 'PO', dotColor: '#15803D' },
+  LOST: { label: 'Lost', dotColor: '#DC2626' },
 };
 
 /* ── Helpers ──────────────────────────────────────────────────────── */
@@ -155,11 +179,11 @@ function ScreenHeader({ name, onBellPress }: { name: string; onBellPress: () => 
   );
 }
 
-function LeadRow({ lead, onPress }: { lead: Lead; onPress: () => void }) {
+function LeadRow({ lead, onPress }: { lead: JourneyRecentLead; onPress: () => void }) {
   const theme = useTheme();
   const step = lead.currentStep ?? 1;
   const displayName = lead.companyName || lead.contactName || 'New Lead';
-  const age = timeAgo(lead.updatedAt || lead.createdAt);
+  const age = timeAgo(lead.updatedAt);
   const isDraft = step < 3;
 
   return (
@@ -231,6 +255,35 @@ function SectionHeader({ title, count, dotColor, onViewAll }: { title: string; c
   );
 }
 
+function initialsOf(name: string): string {
+  return name.split(' ').slice(0, 2).map(w => w[0] ?? '').join('').toUpperCase() || '?';
+}
+
+// Condensed 3-number summary per rep (not all 7 stage columns like web's
+// table — doesn't fit a phone width). Tapping a row deep-links to the
+// Leads screen pre-filtered to that owner.
+function TeamPerformanceRowCard({ row, name, onPress }: { row: TeamPerformanceRow; name: string; onPress: () => void }) {
+  const theme = useTheme();
+  const open = row.counts.QUOTATION + row.counts.MEETING;
+  const won = row.counts.PURCHASE_ORDER;
+  const lost = row.counts.LOST;
+
+  return (
+    <TouchableOpacity onPress={onPress} activeOpacity={0.7} style={[st.leadRow, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
+      <View style={[st.leadIcon, { backgroundColor: theme.colors.primaryLight }]}>
+        <AppText style={{ fontSize: 11, fontFamily: 'Inter-Bold' }} color={theme.colors.primary}>{initialsOf(name)}</AppText>
+      </View>
+      <View style={{ flex: 1 }}>
+        <AppText style={st.leadName} color={theme.colors.text} numberOfLines={1}>{name}</AppText>
+        <AppText style={st.leadMeta} color={theme.colors.textMuted}>
+          {open} open · {won} won · {lost} lost
+        </AppText>
+      </View>
+      <ChevronRight size={14} color={theme.colors.textMuted} strokeWidth={2} />
+    </TouchableOpacity>
+  );
+}
+
 /* ── Main ─────────────────────────────────────────────────────────── */
 
 export function DashboardScreen() {
@@ -238,16 +291,12 @@ export function DashboardScreen() {
   const navigation = useNavigation<Nav>();
   const user = useAppSelector(s => s.auth.user);
   const [refreshKey, setRefreshKey] = React.useState(0);
-
-  const { data: leadSummary, isFetching: ls, isLoading: lsInit, refetch: r1 } = useQuery({
-    queryKey: ['lead-dashboard-summary', refreshKey],
-    queryFn: () => leadsApi.dashboardSummary().then(r => r.data),
-    staleTime: 60_000,
-  });
+  const [dateRange, setDateRange] = React.useState<DateRangeValue>({});
+  const isManager = !!user?.role && MANAGER_ROLES.includes(user.role);
 
   const { data: oppData, isFetching: of_, isLoading: ofInit, refetch: r2 } = useQuery({
-    queryKey: ['opportunity-stats', refreshKey],
-    queryFn: () => dashboardApi.opportunityStats().then(r => r.data),
+    queryKey: ['opportunity-stats', refreshKey, dateRange],
+    queryFn: () => dashboardApi.opportunityStats({ dateFrom: dateRange.dateFrom, dateTo: dateRange.dateTo }).then(r => r.data),
     staleTime: 60_000,
   });
 
@@ -263,39 +312,60 @@ export function DashboardScreen() {
     staleTime: 60_000,
   });
 
-  const { data: recentLeadsData, isFetching: rl, isLoading: rlInit, refetch: r5 } = useQuery({
-    queryKey: ['recent-leads-home', refreshKey],
-    queryFn: () => leadsApi.list({ page: 1, pageSize: 20 }).then(r => r.data),
+  // Real, server-computed per-stage counts + recent leads (date-range aware)
+  // — replaces the old client-filtered flat 20-item fetch, which only ever
+  // reflected whichever 20 leads happened to be most recent, not true
+  // per-stage totals.
+  const { data: journeySummary, isFetching: js, isLoading: jsInit, refetch: r5 } = useQuery({
+    queryKey: ['lead-journey-summary', refreshKey, dateRange],
+    queryFn: () => leadsApi.journeySummary({ dateFrom: dateRange.dateFrom, dateTo: dateRange.dateTo }).then(r => r.data),
     staleTime: 60_000,
   });
 
-  const isInitialLoad = lsInit || ofInit || ffInit || csInit || rlInit;
-  const refreshing = !isInitialLoad && (ls || of_ || ff || cs || rl);
-  const onRefresh = () => { setRefreshKey(k => k + 1); r1(); r2(); r3(); r4(); r5(); };
+  const { data: teamPerformanceData, isFetching: tp, refetch: r6 } = useQuery({
+    queryKey: ['team-performance', refreshKey, dateRange],
+    queryFn: () => leadsApi.teamPerformance({ dateFrom: dateRange.dateFrom, dateTo: dateRange.dateTo }).then(r => r.data),
+    staleTime: 60_000,
+    enabled: isManager,
+  });
+
+  const { data: userDirectory } = useQuery({
+    queryKey: ['user-directory'],
+    queryFn: () => identityApi.userDirectory().then(r => r.data),
+    staleTime: 5 * 60_000,
+    enabled: isManager,
+  });
+  const nameFor = useCallback(
+    (ownerId: string) => userDirectory?.find(u => u.id === ownerId)?.name ?? ownerId,
+    [userDirectory],
+  );
+
+  const isInitialLoad = ofInit || ffInit || csInit || jsInit;
+  const refreshing = !isInitialLoad && (of_ || ff || cs || js || (isManager && tp));
+  const onRefresh = () => { setRefreshKey(k => k + 1); r2(); r3(); r4(); r5(); if (isManager) r6(); };
 
   useFocusEffect(
-    useCallback(() => { r1(); r2(); r3(); r4(); r5(); }, [r1, r2, r3, r4, r5]),
+    useCallback(() => { r2(); r3(); r4(); r5(); if (isManager) r6(); }, [r2, r3, r4, r5, r6, isManager]),
   );
 
   const name = user?.name?.split(' ')[0] ?? 'there';
 
-  const totalLeads = leadSummary?.activeCount ?? 0;
   const totalFollowUps = followUpsData?.total ?? 0;
   const totalCustomers = customerSummary?.total ?? 0;
   const pipelineValue = oppData?.pipelineValue;
-  const openOpps = oppData?.openCount ?? 0;
+  const stages: JourneyStageSummary[] = journeySummary?.stages ?? [];
+  const totalLeads = journeySummary?.total ?? 0;
 
   const allFollowUps = followUpsData?.items ?? [];
   const overdueFollowUps = allFollowUps.filter(item => isOverdue(item.nextActionAt) && !isDueToday(item.nextActionAt));
   const todayFollowUps = allFollowUps.filter(item => isDueToday(item.nextActionAt));
   const upcomingFollowUps = allFollowUps.filter(item => isWithinNextWeek(item.nextActionAt) && !isDueToday(item.nextActionAt) && !isOverdue(item.nextActionAt));
 
-  const allLeads = recentLeadsData?.items ?? [];
-  const newVisitLeads = allLeads.filter(l => (l.currentStep ?? 3) === 1);
-  const contactedLeads = allLeads.filter(l => (l.currentStep ?? 3) === 2);
-  const qualifiedLeads = allLeads.filter(l => l.status === 'QUALIFIED' || (l.currentStep ?? 0) >= 3);
-
-  const goLeads = (filter?: string) => navigation.navigate('SalesTabs', { screen: 'Leads', params: filter ? { filter } : undefined });
+  const goLeads = (filter?: string, ownerId?: string) =>
+    navigation.navigate('SalesTabs', {
+      screen: 'Leads',
+      params: filter || ownerId ? { filter, ownerId } : undefined,
+    });
 
   return (
     <Screen edges={['left', 'right']}>
@@ -316,6 +386,11 @@ export function DashboardScreen() {
               <TouchableOpacity onPress={() => navigation.navigate('LeadCreate')} style={st.fabMini} activeOpacity={0.8}>
                 <Plus size={18} color="#FFF" strokeWidth={2.5} />
               </TouchableOpacity>
+            </View>
+
+            {/* Time-range filter */}
+            <View style={st.filterWrap}>
+              <DateRangeFilter value={dateRange} onChange={setDateRange} />
             </View>
 
             {/* Compact stats — single row */}
@@ -342,32 +417,42 @@ export function DashboardScreen() {
               </View>
             </View>
 
-            {/* New Visit Leads */}
-            {newVisitLeads.length > 0 && (
-              <View style={st.section}>
-                <SectionHeader title="New Visit" count={newVisitLeads.length} dotColor="#F59E0B" onViewAll={() => goLeads('draft')} />
-                {newVisitLeads.slice(0, 3).map(lead => (
-                  <LeadRow key={lead.id} lead={lead} onPress={() => navigation.navigate('LeadCreate', { resumeLeadId: lead.id })} />
-                ))}
-              </View>
-            )}
+            {/* 7-stage Lead Journey breakdown */}
+            {stages.map(stage => {
+              if (stage.recentLeads.length === 0) return null;
+              const meta = STAGE_META[stage.stage];
+              return (
+                <View key={stage.stage} style={st.section}>
+                  <SectionHeader
+                    title={meta.label}
+                    count={stage.count}
+                    dotColor={meta.dotColor}
+                    onViewAll={() => goLeads(stage.stage)}
+                  />
+                  {stage.recentLeads.slice(0, 3).map(lead => (
+                    <LeadRow
+                      key={lead.id}
+                      lead={lead}
+                      onPress={() => (lead.currentStep ?? 3) < 3
+                        ? navigation.navigate('LeadCreate', { resumeLeadId: lead.id })
+                        : navigation.navigate('LeadDetail', { id: lead.id })}
+                    />
+                  ))}
+                </View>
+              );
+            })}
 
-            {/* Contacted Leads */}
-            {contactedLeads.length > 0 && (
+            {/* Team performance (managers/admins only) */}
+            {isManager && teamPerformanceData && teamPerformanceData.length > 0 && (
               <View style={st.section}>
-                <SectionHeader title="Contacted" count={contactedLeads.length} dotColor="#3B82F6" onViewAll={() => goLeads('draft')} />
-                {contactedLeads.slice(0, 3).map(lead => (
-                  <LeadRow key={lead.id} lead={lead} onPress={() => navigation.navigate('LeadCreate', { resumeLeadId: lead.id })} />
-                ))}
-              </View>
-            )}
-
-            {/* Qualified Leads */}
-            {qualifiedLeads.length > 0 && (
-              <View style={st.section}>
-                <SectionHeader title="Qualified" count={qualifiedLeads.length} dotColor="#059669" onViewAll={() => goLeads('qualified')} />
-                {qualifiedLeads.slice(0, 3).map(lead => (
-                  <LeadRow key={lead.id} lead={lead} onPress={() => navigation.navigate('LeadDetail', { id: lead.id })} />
+                <SectionHeader title="Team Performance" count={teamPerformanceData.length} dotColor={theme.colors.primary} />
+                {teamPerformanceData.map(row => (
+                  <TeamPerformanceRowCard
+                    key={row.ownerId}
+                    row={row}
+                    name={nameFor(row.ownerId)}
+                    onPress={() => goLeads(undefined, row.ownerId)}
+                  />
                 ))}
               </View>
             )}
@@ -403,7 +488,7 @@ export function DashboardScreen() {
             )}
 
             {/* Empty */}
-            {allLeads.length === 0 && allFollowUps.length === 0 && (
+            {totalLeads === 0 && allFollowUps.length === 0 && (
               <View style={[st.emptyCard, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
                 <CalendarCheck size={24} color={theme.colors.textMuted} strokeWidth={1.5} />
                 <AppText style={st.emptyText} color={theme.colors.textMuted}>No leads or follow-ups yet</AppText>
@@ -442,6 +527,8 @@ const st = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.2)',
     alignItems: 'center', justifyContent: 'center', marginLeft: 12,
   },
+
+  filterWrap: { paddingHorizontal: 12, marginTop: 14 },
 
   statsRow: {
     flexDirection: 'row', paddingHorizontal: 12,

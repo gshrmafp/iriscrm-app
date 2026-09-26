@@ -23,10 +23,12 @@ import { AppButton } from '@/components/common/AppButton';
 import { Loader } from '@/components/feedback/Loader';
 import { SalesStackParamList } from '@/features/sales/navigation/types';
 import { leadsApi, type FollowUp, type LeadMeeting } from '@/services/api/leads.api';
+import { canWinOpportunity, type OpportunityStage } from '@/services/api/opportunities.api';
 import { DARK_NAVY } from '@/constants/brandColors';
 import { useSilentLocationCapture } from '@/hooks/useSilentLocationCapture';
 import { FollowUpModal, MeetingModal } from '@/features/sales/leads/components/FollowUpMeetingModals';
 import { LoggedFollowUpCard, LoggedMeetingCard } from '@/features/sales/leads/components/LoggedActivityCards';
+import { WinPurchaseOrderForm } from '@/features/sales/opportunities/components/WinPurchaseOrderForm';
 
 type RouteProps = RouteProp<SalesStackParamList, 'LeadDetail'>;
 type Nav = NativeStackNavigationProp<SalesStackParamList>;
@@ -221,6 +223,7 @@ export function LeadDetailScreen() {
   const insets = useSafeAreaInsets();
   const [followUpModal, setFollowUpModal] = useState(false);
   const [meetingModal, setMeetingModal] = useState(false);
+  const [showWinForm, setShowWinForm] = useState(false);
   const { location: meetingLocation, capture: captureMeetingLocation, reset: resetMeetingLocation } = useSilentLocationCapture();
 
   // Lead Journey accordion — every section is open by default; tracking
@@ -537,6 +540,24 @@ export function LeadDetailScreen() {
               <JourneyField label="PO Remarks" value={opportunity.poRemarks} theme={theme} />
               {followUpsAt('PURCHASE_ORDER').map(f => <View key={f.id} style={st.journeyItemSpacer}><LoggedFollowUpCard item={f} theme={theme} /></View>)}
               {meetingsAt('PURCHASE_ORDER').map(m => <View key={m.id} style={st.journeyItemSpacer}><LoggedMeetingCard item={m} theme={theme} /></View>)}
+              {/* Win the deal directly from Lead Details — no need to
+                  navigate to the separate Opportunity screen. */}
+              {canWinOpportunity(opportunity.stage as OpportunityStage) && (
+                showWinForm ? (
+                  <View style={st.journeyItemSpacer}>
+                    <WinPurchaseOrderForm
+                      opportunityId={opportunity.id}
+                      onCancel={() => setShowWinForm(false)}
+                      onWon={() => setShowWinForm(false)}
+                      bordered={false}
+                    />
+                  </View>
+                ) : (
+                  <TouchableOpacity onPress={() => setShowWinForm(true)} style={[st.journeyActionBtn, { borderColor: theme.colors.border, marginTop: 8 }]} activeOpacity={0.75}>
+                    <AppText style={st.journeyActionLabel} color={theme.colors.primary}>Win — Capture Purchase Order</AppText>
+                  </TouchableOpacity>
+                )
+              )}
             </JourneySection>
           )}
         </View>

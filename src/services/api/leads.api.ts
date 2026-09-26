@@ -110,6 +110,44 @@ export interface LeadDashboardSummary {
   needAttentionCount: number;
 }
 
+// The 7 canonical Lead Journey stages — see leads.api.ts's `stage` param above.
+export type LeadStageFilter =
+  | 'NEW_LEAD'
+  | 'CONTACTED'
+  | 'QUALIFIED'
+  | 'QUOTATION'
+  | 'MEETING'
+  | 'PURCHASE_ORDER'
+  | 'LOST';
+
+export interface JourneyRecentLead {
+  id: string;
+  refNo: string;
+  contactName?: string | null;
+  companyName?: string | null;
+  status: string;
+  currentStep: number;
+  updatedAt: string;
+  opportunity?: { stage: string } | null;
+}
+
+export interface JourneyStageSummary {
+  stage: LeadStageFilter;
+  count: number;
+  value?: number;
+  recentLeads: JourneyRecentLead[];
+}
+
+export interface LeadJourneySummary {
+  stages: JourneyStageSummary[];
+  total: number;
+}
+
+export interface TeamPerformanceRow {
+  ownerId: string;
+  counts: Record<LeadStageFilter, number>;
+}
+
 export const leadsApi = {
   list: (params: {
     page?: number;
@@ -119,6 +157,13 @@ export const leadsApi = {
     // Filters by the linked Opportunity's stage (e.g. QUOTED) instead of the
     // lead's own status — a lead only has one once it's been qualified.
     opportunityStage?: string;
+    // Composite "Lead Journey" stage filter — one of NEW_LEAD, CONTACTED,
+    // QUALIFIED, QUOTATION, MEETING, PURCHASE_ORDER, LOST. Folds status/
+    // currentStep and Opportunity.stage into the same 7 stages shown on a
+    // lead's own journey timeline (see leads/dto.ts's leadStageFilterValues
+    // on the backend). Prefer this over status/opportunityStage above.
+    stage?: string;
+    ownerId?: string;
   }) => apiClient.get<LeadsPage>('/leads', { params }),
 
   dashboardSummary: (params?: { ownerId?: string }) =>
@@ -163,4 +208,15 @@ export const leadsApi = {
     | { path: 'FUTURE_POTENTIAL'; followUpDate: string; remarks?: string }
     | { path: 'REQUIREMENT_IDENTIFIED'; dealType: 'INSTALLATION' | 'AMC' | 'MAINTENANCE'; quotationRef: string; quotationDate: string; quotationAmount: number }
   ) => apiClient.patch<{ lead: Lead; opportunity?: { id: string } }>(`/leads/${id}/step-3`, body),
+
+  // Combined Lead+Opportunity 7-stage breakdown (count + recent leads per
+  // stage), date-range filterable — powers the Home dashboard's stage
+  // sections instead of client-filtering a flat, capped leads fetch.
+  journeySummary: (params?: { ownerId?: string; dateFrom?: string; dateTo?: string }) =>
+    apiClient.get<LeadJourneySummary>('/leads/journey-summary', { params }),
+
+  // Per-owner version of the same 7-stage breakdown, for the Home
+  // dashboard's Team performance section (managers/admins only).
+  teamPerformance: (params?: { dateFrom?: string; dateTo?: string }) =>
+    apiClient.get<TeamPerformanceRow[]>('/leads/team-performance', { params }),
 };

@@ -7,33 +7,43 @@ Geolocation.setRNConfiguration({
   locationProvider: 'auto',
 });
 
-function getPosition(highAccuracy: boolean, timeoutMs: number): Promise<LocationCoords> {
+// watchPosition keeps the location subsystem open and resolves with whatever
+// fix arrives first, rather than a single getCurrentPosition call's hard
+// deadline — this succeeds much more often on providers that are slow to
+// warm up. PERMISSION_DENIED fails fast; any other error is transient and
+// the watch is left running until the overall timeout below.
+export function getCurrentLocation(timeoutMs = 20000): Promise<LocationCoords> {
   return new Promise((resolve, reject) => {
-    Geolocation.getCurrentPosition(
+    let settled = false;
+    const watchId = Geolocation.watchPosition(
       pos => {
+        if (settled) return;
+        settled = true;
+        Geolocation.clearWatch(watchId);
         resolve({
           latitude: pos.coords.latitude,
           longitude: pos.coords.longitude,
           accuracy: pos.coords.accuracy,
         });
       },
-      err => reject(err),
-      {
-        enableHighAccuracy: highAccuracy,
-        timeout: timeoutMs,
-        maximumAge: 60000,
+      err => {
+        if (settled) return;
+        if (err.code === 1) {
+          settled = true;
+          Geolocation.clearWatch(watchId);
+          reject(err);
+        }
+        // else: transient — keep watching, the overall timeout below covers a full failure.
       },
+      { enableHighAccuracy: true, maximumAge: 0, timeout: timeoutMs },
     );
+    setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      Geolocation.clearWatch(watchId);
+      reject({ code: 2, message: 'Timed out waiting for location' });
+    }, timeoutMs);
   });
-}
-
-export async function getCurrentLocation(timeoutMs = 15000): Promise<LocationCoords> {
-  try {
-    return await getPosition(true, timeoutMs);
-  } catch (firstErr: any) {
-    if (firstErr?.code === 1) throw firstErr;
-    return await getPosition(false, 20000);
-  }
 }
 
 export function promptEnableLocationServices(): void {
