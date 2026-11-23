@@ -20,6 +20,7 @@ const ROLE_LABELS: Record<string, string> = {
   SALES_MANAGER: 'Sales Manager',
   SALES_EXECUTIVE: 'Sales Executive',
   AUDITOR: 'Auditor',
+  HR_ADMIN: 'HR Admin',
 };
 
 const AVATAR_COLORS = ['#3B4ECC', '#7C3AED', '#059669', '#B45309', '#DC2626', '#0891B2'];

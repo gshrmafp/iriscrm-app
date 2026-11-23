@@ -1,11 +1,14 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { View, TouchableOpacity, StyleSheet, ScrollView } from 'react-native';
 import { createDrawerNavigator, DrawerContentComponentProps } from '@react-navigation/drawer';
-import { LayoutDashboard, Settings, LogOut } from 'lucide-react-native';
+import { LayoutDashboard, Settings, LogOut, IdCard } from 'lucide-react-native';
+import { useQuery } from '@tanstack/react-query';
 import { useTheme } from '@/design-system';
 import { AppText } from '@/components/common/AppText';
 import { AppDrawerParamList } from './types';
 import { SalesNavigator } from '@/features/sales/navigation/SalesNavigator';
+import { HrmsNavigator } from '@/features/hrms/navigation/HrmsNavigator';
+import { hrmsApi } from '@/services/api/hrms.api';
 import { ProfileScreen } from '@/features/profile/screens/ProfileScreen';
 import { useAppSelector, useAppDispatch } from '@/app/store/hooks';
 import { logout } from '@/app/store/slices/authSlice';
@@ -22,6 +25,8 @@ type DrawerNavItem = {
   subtitle?: string;
   Icon: React.ComponentType<any>;
   danger?: boolean;
+  /** Permission key the user needs to see this item. */
+  requires?: string;
 };
 
 type DrawerSection = { title?: string; items: DrawerNavItem[] };
@@ -34,6 +39,14 @@ const DRAWER_SECTIONS: DrawerSection[] = [
         label: 'Sales',
         subtitle: 'Leads, pipeline & customers',
         Icon: LayoutDashboard,
+        requires: 'sales.lead.view',
+      },
+      {
+        name: 'HrmsStack',
+        label: 'My Workspace',
+        subtitle: 'Your employee profile',
+        Icon: IdCard,
+        requires: 'hr.employee.view',
       },
     ],
   },
@@ -67,13 +80,44 @@ const ROLE_LABELS: Record<string, string> = {
   REGIONAL_ADMIN: 'Regional Admin',
   SALES_MANAGER: 'Sales Manager',
   SALES_EXECUTIVE: 'Sales Executive',
+  AUDITOR: 'Auditor',
+  HR_ADMIN: 'HR Admin',
 };
+
+// Effective permission keys for the signed-in user; drives which modules
+// appear in the drawer. Shared cache key so every consumer reuses one fetch.
+function useMyPermissions() {
+  const { data } = useQuery({
+    queryKey: ['auth', 'my-permissions'],
+    queryFn: () => hrmsApi.myPermissions().then(r => r.data),
+    staleTime: 5 * 60_000,
+  });
+  return data;
+}
 
 function CustomDrawerContent(props: DrawerContentComponentProps) {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const dispatch = useAppDispatch();
   const user = useAppSelector(s => s.auth.user);
+  const permissions = useMyPermissions();
+
+  // Until permissions load, show only items that don't need one plus Sales
+  // (the long-standing default) so the drawer doesn't flicker for sales users.
+  const sections = useMemo(
+    () =>
+      DRAWER_SECTIONS.map(section => ({
+        ...section,
+        items: section.items.filter(item =>
+          !item.requires
+            ? true
+            : permissions
+            ? permissions.includes(item.requires)
+            : item.name === 'SalesStack',
+        ),
+      })).filter(section => section.items.length > 0),
+    [permissions],
+  );
 
   const initials = user?.name
     ? user.name.split(' ').slice(0, 2).map(w => w[0] ?? '').join('').toUpperCase()
@@ -110,7 +154,7 @@ function CustomDrawerContent(props: DrawerContentComponentProps) {
       </View>
 
       <ScrollView style={styles.menuList} showsVerticalScrollIndicator={false}>
-        {DRAWER_SECTIONS.map((section, si) => (
+        {sections.map((section, si) => (
           <View key={si} style={styles.section}>
             {section.title ? (
               <AppText style={[styles.sectionTitle, { color: theme.colors.textMuted }]}>
@@ -182,9 +226,12 @@ function CustomDrawerContent(props: DrawerContentComponentProps) {
 
 export function AppDrawerNavigator() {
   usePostLoginPermissions();
+  const role = useAppSelector(s => s.auth.user?.role);
 
   return (
     <Drawer.Navigator
+      // HR admins have no Sales access, so they start in their HR workspace.
+      initialRouteName={role === 'HR_ADMIN' ? 'HrmsStack' : 'SalesStack'}
       drawerContent={props => <CustomDrawerContent {...props} />}
       screenOptions={{
         headerShown: false,
@@ -195,6 +242,7 @@ export function AppDrawerNavigator() {
       }}
     >
       <Drawer.Screen name="SalesStack" component={SalesNavigator} />
+      <Drawer.Screen name="HrmsStack" component={HrmsNavigator} />
       <Drawer.Screen name="ProfileScreen" component={ProfileScreen} />
     </Drawer.Navigator>
   );
